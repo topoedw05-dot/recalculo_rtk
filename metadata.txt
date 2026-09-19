@@ -8,9 +8,9 @@ email=topoedw05@gmail.com
 
 about=Complemento de topografia y catastro para GNSS/RTK. A partir de la coordenada de la base tomada libre en campo y su coordenada ajustada (obtenida por postproceso estatico), calcula el vector de traslacion y lo aplica a todos los puntos de un archivo CSV (delimitado por comas), permitiendo elegir las columnas de X/Este, Y/Norte y Z/elevacion. Recalcula tanto las coordenadas planas (proyectadas) como las geograficas (longitud/latitud), agrega los puntos resultantes como capa al proyecto, y permite exportarlos tambien a Shapefile (.shp) y a DXF (.dxf).
 
-tracker=https://github.com/TU_USUARIO/recalculo_rtk/issues
-repository=https://github.com/TU_USUARIO/recalculo_rtk
-homepage=https://github.com/TU_USUARIO/recalculo_rtk#readme
+tracker=https://github.com/topoedw05-dot/recalculo_rtk/issues
+repository=https://github.com/topoedw05-dot/recalculo_rtk
+homepage=https://github.com/topoedw05-dot/recalculo_rtk#readme
 category=Vector
 tags=rtk,gnss,catastro,topografia,magna-sirgas,postproceso,coordenadas,agrimensura,levantamiento
 
