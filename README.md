@@ -188,6 +188,50 @@ P3,999987.100,1000022.400,2601.120,PR-2
   ninguna dependencia de QGIS, y se puede probar de forma aislada con
   Python estándar (ver `test_core.py`).
 
+## Publicar en el repositorio oficial de QGIS (plugins.qgis.org)
+
+Para que cualquier usuario pueda instalar este complemento desde
+`Complementos → Administrar e instalar complementos → Todos` (sin ZIP ni
+copia manual), hay que publicarlo en el repositorio oficial. Resumen de los
+pasos:
+
+1. **Crear una cuenta OSGeo.** Es la identidad que exige el repositorio
+   oficial de QGIS (es del proyecto OSGeo, no de QGIS únicamente). Se crea
+   una sola vez en el portal de OSGeo.
+2. **Subir el código a un repositorio público** (lo más común es GitHub).
+   El repositorio oficial de QGIS exige un enlace público al código fuente
+   real, no solo el archivo ZIP. Esta carpeta ya viene con un repositorio
+   git inicializado (un primer commit con todo el código); solo falta
+   crear un repositorio vacío en GitHub y conectarlo:
+   ```
+   git remote add origin https://github.com/TU_USUARIO/recalculo_rtk.git
+   git branch -M main
+   git push -u origin main
+   ```
+3. **Editar `metadata.txt`** y reemplazar `TU_USUARIO` en los campos
+   `repository`, `tracker` y `homepage` por tu usuario real de GitHub (ya
+   están dejados como plantilla en este paquete).
+4. **Revisar la licencia.** El repositorio exige que el complemento tenga
+   una licencia compatible con la GPLv2 o superior, y un archivo llamado
+   exactamente `LICENSE` (sin extensión) en la carpeta del complemento. Ya
+   se incluyó uno con la licencia GPLv3.
+5. **Volver a empaquetar** la carpeta `recalculo_rtk` en un `.zip` (con
+   `metadata.txt` y `LICENSE` ya actualizados, y sin la carpeta `.git`).
+6. **Subir el complemento.** En <https://plugins.qgis.org/>, iniciar
+   sesión con la cuenta OSGeo y usar la opción "Upload a plugin" /
+   "Share a plugin", cargando ese `.zip`.
+7. **Esperar la revisión.** La primera vez, un miembro del equipo de QGIS
+   revisa y aprueba la versión antes de que quede visible públicamente;
+   las siguientes actualizaciones (subiendo un nuevo `.zip` con un número
+   de `version` distinto en `metadata.txt`) pasan por el mismo proceso
+   hasta que la cuenta obtenga permiso de aprobación automática.
+
+Notas adicionales que pide el repositorio oficial: el paquete no debe
+superar 25 MB (este lo cumple de sobra), no debe incluir archivos
+generados ni carpetas ocultas como `.git` dentro del ZIP que se sube, y
+conviene revisar antes en <https://plugins.qgis.org/> que no exista ya un
+complemento con una función equivalente, para evitar duplicados.
+
 ## Autor
 
 Edwin Arley Castellanos Martínez — topógrafo y agrimensor catastral.
