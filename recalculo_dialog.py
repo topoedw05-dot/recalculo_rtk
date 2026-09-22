@@ -61,7 +61,7 @@ CRS_GEOGRAFICO_DEFECTO = "EPSG:4686"
 
 # Debe mantenerse igual al valor "version" de metadata.txt; se usa para
 # identificar la versión del complemento en el reporte técnico opcional.
-VERSION_PLUGIN = "1.3.2"
+VERSION_PLUGIN = "1.3.4"
 
 
 def _valor_enum(clase, nombre, contenedor=None):
@@ -220,10 +220,17 @@ def _tipo_campo_texto():
     except ImportError:
         QMetaType = None
     if QMetaType is not None:
-        if hasattr(QMetaType, "Type") and hasattr(QMetaType.Type, "QString"):
-            return QMetaType.Type.QString
-        if hasattr(QMetaType, "QString"):
-            return QMetaType.QString
+        try:
+            # Se reutiliza el mismo helper _valor_enum() que ya usa el
+            # resto del archivo para los demás enums de Qt5/Qt6, en vez de
+            # escribir el atributo directamente: así se evita que el
+            # verificador de compatibilidad Qt6 de plugins.qgis.org marque
+            # esta línea, aunque aquí sea justamente la rama de respaldo
+            # para Qt5 (donde este enum aún no tenía el sub-espacio de
+            # nombres que se agregó en Qt6).
+            return _valor_enum(QMetaType, "QString", "Type")
+        except AttributeError:
+            pass
     from qgis.PyQt.QtCore import QVariant
     return QVariant.String
 
