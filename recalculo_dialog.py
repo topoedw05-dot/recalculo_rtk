@@ -9,6 +9,7 @@ cálculo; la aritmética pura vive en core.py (sin dependencias de
 QGIS) para poder probarla de forma aislada.
 """
 
+import datetime
 import os
 
 from qgis.PyQt.QtCore import Qt
@@ -37,6 +38,7 @@ from qgis.core import (
     QgsProject,
     QgsCoordinateReferenceSystem,
     QgsCoordinateTransform,
+    QgsUnitTypes,
     QgsVectorLayer,
     QgsVectorFileWriter,
     QgsField,
@@ -57,6 +59,10 @@ PLACEHOLDER_COL_OPCIONAL = "-- No aplica / usar número de fila --"
 # el selector de CRS del diálogo.
 CRS_GEOGRAFICO_DEFECTO = "EPSG:4686"
 
+# Debe mantenerse igual al valor "version" de metadata.txt; se usa para
+# identificar la versión del complemento en el reporte técnico opcional.
+VERSION_PLUGIN = "1.3.2"
+
 
 def _valor_enum(clase, nombre, contenedor=None):
     """Obtiene un valor de enum compatible tanto con PyQt5/Qt5 (enums
@@ -72,18 +78,152 @@ def _valor_enum(clase, nombre, contenedor=None):
     return getattr(clase, nombre)
 
 
+def _describir_crs_detallado(crs):
+    """Extrae el detalle completo del sistema de coordenadas (equivalente
+    al panel "Details"/"Properties" de un CRS en ArcGIS/QGIS): sistema
+    proyectado (si aplica) y su sistema geográfico base, con nombre,
+    código EPSG/WKID, unidades, parámetros de la proyección, datum,
+    esferoide y área de uso.
+
+    Usa los bindings de Python de GDAL (``osgeo.osr``), que QGIS trae
+    incluidos siempre (GDAL es una dependencia obligatoria de QGIS), para
+    leer esos datos directamente de la base de datos EPSG que usa QGIS —
+    no se inventa ni se codifica a mano ningún valor: todo sale de la
+    definición real del CRS que el usuario seleccionó en el diálogo.
+
+    Retorna ``None`` si por algún motivo no se pudo obtener el detalle
+    (por ejemplo, un QGIS empaquetado sin los bindings de Python de
+    GDAL); en ese caso el llamador debe usar ``_describir_crs`` como
+    alternativa más simple.
+    """
+    try:
+        from osgeo import osr
+    except Exception:
+        return None
+
+    srs = osr.SpatialReference()
+    importado = False
+    authid = crs.authid() or ""
+    if ":" in authid:
+        try:
+            codigo = int(authid.split(":")[-1])
+            importado = srs.ImportFromEPSG(codigo) == 0
+        except (ValueError, RuntimeError):
+            importado = False
+    if not importado:
+        # CRS sin código EPSG reconocible (definición personalizada): se
+        # intenta igual a partir del WKT que ya tiene QGIS, aunque en
+        # ese caso no hay "área de uso" disponible (ese dato solo vive
+        # en la base de datos EPSG, no en el WKT).
+        try:
+            if srs.ImportFromWkt(crs.toWkt()) != 0:
+                return None
+        except Exception:
+            return None
+
+    def _area_uso():
+        try:
+            aou = srs.GetAreaOfUse()
+            return aou.name if aou else None
+        except Exception:
+            return None
+
+    def _num(valor, alternativa=0.0):
+        try:
+            return float(valor)
+        except (TypeError, ValueError):
+            return alternativa
+
+    proyectado = None
+    area_uso = None
+    if srs.IsProjected():
+        area_uso = _area_uso()
+        proyectado = {
+            "nombre": srs.GetAttrValue("PROJCS") or crs.description(),
+            "proyeccion": (srs.GetAttrValue("PROJECTION") or "").replace("_", " "),
+            "wkid": srs.GetAuthorityCode("PROJCS") or srs.GetAuthorityCode(None) or "",
+            "autoridad": srs.GetAuthorityName("PROJCS") or srs.GetAuthorityName(None) or "EPSG",
+            "unidad_nombre": srs.GetLinearUnitsName(),
+            "unidad_factor": _num(srs.GetLinearUnits(), 1.0),
+            "false_easting": _num(srs.GetNormProjParm("false_easting")),
+            "false_northing": _num(srs.GetNormProjParm("false_northing")),
+            "meridiano_central": _num(srs.GetNormProjParm("central_meridian")),
+            "factor_escala": _num(srs.GetNormProjParm("scale_factor"), 1.0),
+            "latitud_origen": _num(srs.GetNormProjParm("latitude_of_origin")),
+            "area_uso": area_uso,
+        }
+
+    geografico = {
+        "nombre": srs.GetAttrValue("GEOGCS") or crs.description(),
+        "wkid": srs.GetAuthorityCode("GEOGCS") or "",
+        "autoridad": srs.GetAuthorityName("GEOGCS") or "EPSG",
+        "unidad_nombre": srs.GetAngularUnitsName(),
+        "unidad_factor": _num(srs.GetAngularUnits(), 1.0),
+        "primer_meridiano_nombre": srs.GetAttrValue("PRIMEM") or "Greenwich",
+        "primer_meridiano_valor": _num(srs.GetAttrValue("PRIMEM", 0) or 0),
+        "datum": (srs.GetAttrValue("DATUM") or "").replace("_", " "),
+        "esferoide_nombre": srs.GetAttrValue("SPHEROID") or "",
+        "semieje_mayor": _num(srs.GetSemiMajor()),
+        "semieje_menor": _num(srs.GetSemiMinor()),
+        "aplanamiento_inverso": _num(srs.GetInvFlattening()),
+        # Solo se muestra el área de uso acá cuando no hay bloque
+        # "proyectado" (si lo hay, ya se mostró ahí y sería redundante
+        # repetirla, igual que en el panel de referencia de ArcGIS/QGIS).
+        "area_uso": None if proyectado is not None else _area_uso(),
+    }
+
+    return {"proyectado": proyectado, "geografico": geografico}
+
+
+def _describir_crs(crs):
+    """Respaldo simple de ``_describir_crs_detallado`` (arma un
+    diccionario con nombre, EPSG, unidades, si el datum es
+    estático/dinámico, cuerpo celeste y método de proyección), usado
+    solo si GDAL/osgeo no está disponible en esta instalación de QGIS
+    para obtener el detalle completo del CRS.
+
+    Los atributos más nuevos de la API (``isDynamic``,
+    ``celestialBodyName``, ``operation``) se protegen con try/except
+    porque no existen en las versiones más antiguas de QGIS que este
+    complemento sigue soportando (desde 3.16); si faltan, esa fila del
+    reporte simplemente se muestra como "N/D" en vez de fallar.
+    """
+    info = {
+        "authid": crs.authid() or "",
+        "nombre": crs.description() or "",
+    }
+    try:
+        info["unidades"] = QgsUnitTypes.toString(crs.mapUnits())
+    except Exception:
+        info["unidades"] = None
+    try:
+        info["estatico"] = not crs.isDynamic()
+    except Exception:
+        info["estatico"] = None
+    try:
+        info["cuerpo_celeste"] = crs.celestialBodyName()
+    except Exception:
+        info["cuerpo_celeste"] = None
+    try:
+        info["metodo"] = crs.operation().description()
+    except Exception:
+        info["metodo"] = None
+    return info
+
+
 def _tipo_campo_texto():
     """Valor de tipo de campo "texto" para QgsField, compatible con
     QGIS/Qt5 (basado en QVariant) y QGIS/Qt6 (basado en QMetaType, que
     reemplazó a QVariant para este propósito a partir de QGIS 4)."""
     try:
         from qgis.PyQt.QtCore import QMetaType
+    except ImportError:
+        QMetaType = None
+    if QMetaType is not None:
         if hasattr(QMetaType, "Type") and hasattr(QMetaType.Type, "QString"):
             return QMetaType.Type.QString
         if hasattr(QMetaType, "QString"):
             return QMetaType.QString
-    except Exception:
-        pass
     from qgis.PyQt.QtCore import QVariant
     return QVariant.String
 
@@ -98,10 +238,9 @@ def _codigo_resultado(valor):
     depender del nombre exacto del tipo de enum."""
     try:
         return int(valor)
-    except Exception:
-        pass
-    nombre = str(getattr(valor, "name", valor)).lower()
-    return 0 if ("noerror" in nombre or "success" in nombre) else 1
+    except (TypeError, ValueError):
+        nombre = str(getattr(valor, "name", valor)).lower()
+        return 0 if ("noerror" in nombre or "success" in nombre) else 1
 
 
 class RecalculoRTKDialog(QDialog):
@@ -264,6 +403,36 @@ class RecalculoRTKDialog(QDialog):
         export_layout.addWidget(nota_dxf)
 
         layout.addWidget(grp_export)
+
+        # --- Reporte técnico (opcional) --------------------------------
+        grp_reporte = QGroupBox("Reporte técnico (opcional)")
+        reporte_layout = QVBoxLayout(grp_reporte)
+
+        datos_form = QFormLayout()
+        self.ed_reporte_proyecto = QLineEdit()
+        self.ed_reporte_proyecto.setPlaceholderText("Nombre del predio/proyecto (opcional)")
+        self.ed_reporte_responsable = QLineEdit()
+        self.ed_reporte_responsable.setPlaceholderText("Responsable del levantamiento (opcional)")
+        datos_form.addRow("Proyecto:", self.ed_reporte_proyecto)
+        datos_form.addRow("Responsable:", self.ed_reporte_responsable)
+        reporte_layout.addLayout(datos_form)
+
+        self.chk_reporte, self.ed_reporte_path, btn_reporte = self._build_export_row(
+            reporte_layout, "Generar reporte técnico (HTML)", self._on_examinar_reporte
+        )
+
+        nota_reporte = QLabel(
+            "El reporte es una página HTML (se abre con cualquier navegador) con las "
+            "coordenadas de ambas bases, el vector de traslación aplicado, el detalle "
+            "completo de los sistemas de referencia usados (equivalente y las mismas "
+            "propiedades que muestra QGIS/ArcGIS para un CRS) y el listado completo de "
+            "puntos recalculados. Es opcional: solo se genera si el usuario lo requiere, "
+            "por ejemplo como soporte técnico del trabajo realizado."
+        )
+        nota_reporte.setWordWrap(True)
+        reporte_layout.addWidget(nota_reporte)
+
+        layout.addWidget(grp_reporte)
         layout.addStretch(1)
 
         # El contenido configurable queda dentro de la barra de
@@ -425,6 +594,9 @@ class RecalculoRTKDialog(QDialog):
             self.ed_shp_path.setText(core.sugerir_ruta_con_extension(csv_path, ".shp"))
         if not self.ed_dxf_path.text().strip():
             self.ed_dxf_path.setText(core.sugerir_ruta_con_extension(csv_path, ".dxf"))
+        if not self.ed_reporte_path.text().strip():
+            base_reporte, _ext = os.path.splitext(csv_path)
+            self.ed_reporte_path.setText(base_reporte + "_reporte.html")
 
     def _on_examinar_shp(self):
         sugerido = self.ed_shp_path.text().strip() or core.sugerir_ruta_con_extension(
@@ -441,6 +613,16 @@ class RecalculoRTKDialog(QDialog):
         path, _ = QFileDialog.getSaveFileName(self, "Guardar DXF", sugerido, "DXF (*.dxf)")
         if path:
             self.ed_dxf_path.setText(path)
+
+    def _on_examinar_reporte(self):
+        sugerido = self.ed_reporte_path.text().strip()
+        if not sugerido:
+            csv_out = self.ed_out_path.text().strip() or "salida.csv"
+            base, _ext = os.path.splitext(csv_out)
+            sugerido = base + "_reporte.html"
+        path, _ = QFileDialog.getSaveFileName(self, "Guardar reporte técnico", sugerido, "HTML (*.html)")
+        if path:
+            self.ed_reporte_path.setText(path)
 
     def _log(self, mensaje, nivel="info"):
         self.txt_log.appendPlainText(mensaje)
@@ -518,6 +700,12 @@ class RecalculoRTKDialog(QDialog):
             QMessageBox.warning(self, "Falta ruta de DXF", "Indique dónde guardar el DXF (.dxf).")
             return
 
+        generar_reporte = self.chk_reporte.isChecked()
+        ruta_reporte = self.ed_reporte_path.text().strip()
+        if generar_reporte and not ruta_reporte:
+            QMessageBox.warning(self, "Falta ruta del reporte", "Indique dónde guardar el reporte técnico (.html).")
+            return
+
         crs_plano = self.crs_plano_widget.crs()
         crs_geo = self.crs_geo_widget.crs()
         if not crs_plano.isValid() or not crs_geo.isValid():
@@ -542,6 +730,7 @@ class RecalculoRTKDialog(QDialog):
             "X_ajustada", "Y_ajustada", "Z_ajustada", "Lon_ajustada", "Lat_ajustada"
         ]
         nuevas_filas = []
+        puntos_reporte = []
         errores_transform = 0
         for r in resultados:
             try:
@@ -559,6 +748,16 @@ class RecalculoRTKDialog(QDialog):
                 "{:.9f}".format(lat) if lat != "" else "",
             ]
             nuevas_filas.append(fila_salida)
+
+            if generar_reporte:
+                valor_id = r["original"][idx_id] if (idx_id is not None and idx_id < len(r["original"])) else None
+                puntos_reporte.append({
+                    "etiqueta": core.etiqueta_punto(valor_id, r["fila"]),
+                    "x": r["x"], "y": r["y"], "z": r["z"],
+                    "x_adj": r["x_adj"], "y_adj": r["y_adj"], "z_adj": r["z_adj"],
+                    "lon": lon if lon != "" else None,
+                    "lat": lat if lat != "" else None,
+                })
 
         try:
             core.write_csv_rows(out_path, nuevo_header, nuevas_filas)
@@ -621,12 +820,47 @@ class RecalculoRTKDialog(QDialog):
             else:
                 self._log("No se pudo generar el DXF: {}".format(msg))
 
+        reporte_ok = False
+        if generar_reporte:
+            info_reporte = {
+                "fecha": datetime.datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "version_plugin": VERSION_PLUGIN,
+                "proyecto": self.ed_reporte_proyecto.text().strip(),
+                "responsable": self.ed_reporte_responsable.text().strip(),
+                "archivo_entrada": self.ed_csv_path.text().strip(),
+                "archivo_salida": out_path,
+                "base_libre": base_libre,
+                "base_ajustada": base_ajustada,
+                "dx": dx, "dy": dy, "dz": dz,
+                # Detalle completo (nombre+EPSG, proyección, unidades,
+                # datum, esferoide, área de uso...), extraído con GDAL de
+                # la definición real del CRS elegido; si esa vía no está
+                # disponible en esta instalación de QGIS, se usa la
+                # descripción más simple como respaldo.
+                "crs_plano": _describir_crs_detallado(crs_plano) or _describir_crs(crs_plano),
+                "crs_geo": _describir_crs_detallado(crs_geo) or _describir_crs(crs_geo),
+                "total_filas": len(self._csv_rows),
+                "procesados": len(resultados),
+                "errores": errores,
+                "errores_transform": errores_transform,
+                "puntos": puntos_reporte,
+            }
+            html_reporte = core.construir_reporte_html(info_reporte)
+            ok, msg = self._generar_reporte_html(html_reporte, ruta_reporte)
+            if ok:
+                reporte_ok = True
+                self._log("Reporte técnico generado: {}".format(ruta_reporte))
+            else:
+                self._log("No se pudo generar el reporte técnico: {}".format(msg))
+
         resumen = "Se generó el archivo:\n{}\n\nPuntos procesados: {}\nPuntos omitidos: {}".format(
             out_path, len(resultados), len(errores))
         if exportar_shp:
             resumen += "\nShapefile: {}".format(ruta_shp)
         if exportar_dxf:
             resumen += "\nDXF: {}".format(ruta_dxf)
+        if generar_reporte:
+            resumen += "\nReporte técnico: {}".format(ruta_reporte if reporte_ok else "no se pudo generar (ver registro)")
 
         QMessageBox.information(self, "Proceso terminado", resumen)
 
@@ -758,3 +992,19 @@ class RecalculoRTKDialog(QDialog):
 
         ok = _codigo_resultado(codigo) == 0
         return ok, str(mensaje)
+
+    def _generar_reporte_html(self, contenido_html, ruta):
+        """Escribe ``contenido_html`` (ver core.construir_reporte_html) tal
+        cual a un archivo .html en disco, para abrirlo con cualquier
+        navegador. Mucho más simple que generar PDF (no depende de
+        QTextDocument/QPrinter ni de sus diferencias entre PyQt5/PyQt6) y
+        además se ve mejor: el navegador sí soporta todo el CSS que usa
+        el reporte (mayúsculas por CSS, tablas responsivas, etc.), cosa
+        que el motor de texto enriquecido de Qt no soportaba del todo.
+        Devuelve (ok, mensaje)."""
+        try:
+            with open(ruta, "w", encoding="utf-8") as f:
+                f.write(contenido_html)
+        except OSError as exc:
+            return False, str(exc)
+        return True, ""

@@ -52,6 +52,10 @@ recomienda un ajuste de red completo, no una simple traslación).
 8. Opcionalmente exporta los puntos ajustados también como **Shapefile
    (.shp)** y/o **DXF (.dxf)**, para llevarlos a otro software (AutoCAD,
    Civil3D, otro SIG, etc.).
+9. Opcionalmente genera un **reporte técnico en HTML** con el sustento del
+   recálculo (bases, vector de traslación, detalle completo de los CRS
+   usados y listado completo de puntos), por si el usuario lo requiere
+   como soporte del trabajo.
 
 ## Instalación
 
@@ -164,6 +168,46 @@ P3,999987.100,1000022.400,2601.120,PR-2
   campo llamado exactamente `Text`).
 - Ambos formatos son opcionales e independientes entre sí y del CSV de
   salida, que siempre se genera.
+
+## Reporte técnico (opcional)
+
+Además del CSV (siempre) y de Shapefile/DXF (opcionales), el complemento
+puede generar un **reporte técnico en HTML** con el sustento del recálculo,
+por si el usuario lo necesita como soporte del trabajo realizado. Es una
+página HTML autocontenida (todo el CSS va incluido en el propio archivo)
+que se abre con cualquier navegador — Chrome, Edge, Firefox, etc. — y
+también puede imprimirse a PDF desde el navegador si se necesita un PDF:
+
+- Datos del proyecto y responsable (ambos campos son opcionales).
+- **Sistemas de referencia usados**, con el mismo nivel de detalle que el
+  panel "Properties" del selector de CRS de QGIS/ArcGIS: para el sistema
+  proyectado (plano), nombre, proyección, WKID, autoridad, unidad lineal,
+  falso este/norte, meridiano central, factor de escala, latitud de
+  origen y área de uso; para el sistema geográfico base, nombre, WKID,
+  autoridad, unidad angular, primer meridiano, datum, esferoide, semieje
+  mayor/menor y aplanamiento inverso. Todos estos valores se extraen en
+  vivo de la base de datos EPSG que usa QGIS (a través de los bindings de
+  Python de GDAL, incluidos siempre con QGIS) a partir del CRS que el
+  usuario seleccionó — no hay ningún valor fijo en el código.
+- Coordenadas de la base libre y de la base ajustada, y el vector de
+  traslación (ΔX, ΔY, ΔZ) que se calculó y aplicó.
+- Resumen del proceso: filas leídas, puntos recalculados, filas omitidas
+  por error de formato (con el detalle) y puntos que no se pudieron
+  reproyectar.
+- Listado completo de los puntos recalculados, con sus coordenadas
+  originales y ajustadas con 3 decimales, y las coordenadas geográficas
+  en formato grados-minutos-segundos (5 decimales en los segundos).
+
+El diseño usa tarjetas para los sistemas de referencia, títulos
+centrados y en mayúscula, y una tabla de puntos con desplazamiento
+horizontal si no cabe en pantalla, con un estilo visual pensado para
+verse como un reporte técnico profesional.
+
+Es completamente opcional (checkbox sin marcar por defecto): si no se
+necesita, no se genera nada. Se escribe como un archivo `.html` plano,
+sin depender de ninguna librería externa que haya que instalar aparte
+dentro del Python de QGIS, así que funciona igual en QGIS 3.16+ y en
+QGIS 4.x.
 
 ## Notas técnicas
 
