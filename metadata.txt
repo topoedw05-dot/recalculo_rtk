@@ -1,18 +1,20 @@
 [general]
 name=Recalculo RTK a Coordenadas Ajustadas
 qgisMinimumVersion=3.16
-description=Recalcula coordenadas de campo tomadas con una base RTK libre hacia coordenadas ajustadas por postproceso estatico, tanto planas como geograficas.
+description=Recalculates field points collected against a "free" RTK base to the base's adjusted coordinates from static GNSS post-processing (plane and geographic).
 version=1.2.0
 author=Edwin Arley Castellanos Martinez
 email=topoedw05@gmail.com
 
-about=Complemento de topografia y catastro para GNSS/RTK. A partir de la coordenada de la base tomada libre en campo y su coordenada ajustada (obtenida por postproceso estatico), calcula el vector de traslacion y lo aplica a todos los puntos de un archivo CSV (delimitado por comas), permitiendo elegir las columnas de X/Este, Y/Norte y Z/elevacion. Recalcula tanto las coordenadas planas (proyectadas) como las geograficas (longitud/latitud), agrega los puntos resultantes como capa al proyecto, y permite exportarlos tambien a Shapefile (.shp) y a DXF (.dxf).
+about=Surveying and cadastral plugin for GNSS/RTK work. From the coordinates of a "free" RTK base taken in the field and its adjusted coordinates (obtained by static GNSS post-processing), it computes the translation vector and applies it to every point in a comma-delimited CSV file, letting you choose the X/Easting, Y/Northing and Z/elevation columns. It recalculates both projected (plane) and geographic (longitude/latitude) coordinates, adds the resulting points as a layer to the project, and can also export them to Shapefile (.shp) and DXF (.dxf).
+
+  Complemento de topografia y catastro para GNSS/RTK. A partir de la coordenada de la base tomada libre en campo y su coordenada ajustada (obtenida por postproceso estatico), calcula el vector de traslacion y lo aplica a todos los puntos de un archivo CSV (delimitado por comas), permitiendo elegir las columnas de X/Este, Y/Norte y Z/elevacion. Recalcula tanto las coordenadas planas (proyectadas) como las geograficas (longitud/latitud), agrega los puntos resultantes como capa al proyecto, y permite exportarlos tambien a Shapefile (.shp) y a DXF (.dxf).
 
 tracker=https://github.com/topoedw05-dot/recalculo_rtk/issues
 repository=https://github.com/topoedw05-dot/recalculo_rtk
 homepage=https://github.com/topoedw05-dot/recalculo_rtk#readme
 category=Vector
-tags=rtk,gnss,catastro,topografia,magna-sirgas,postproceso,coordenadas,agrimensura,levantamiento
+tags=rtk,gnss,catastro,topografia,magna-sirgas,postproceso,coordenadas,agrimensura,levantamiento,surveying,gis
 
 icon=icon.png
 experimental=False
