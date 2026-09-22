@@ -1,8 +1,9 @@
 [general]
 name=Recalculo RTK a Coordenadas Ajustadas
 qgisMinimumVersion=3.16
+qgisMaximumVersion=4.99
 description=Recalculates field points collected against a "free" RTK base to the base's adjusted coordinates from static GNSS post-processing (plane and geographic).
-version=1.2.0
+version=1.2.1
 author=Edwin Arley Castellanos Martinez
 email=topoedw05@gmail.com
 
@@ -21,7 +22,8 @@ experimental=False
 deprecated=False
 server=False
 
-changelog=1.2.0 La ventana del dialogo ahora es redimensionable a voluntad (se puede agrandar, achicar o maximizar) y su contenido queda dentro de una barra de desplazamiento vertical, para que quepa en pantallas pequenas; el registro de estado y los botones quedan siempre visibles debajo.
+changelog=1.2.1 Corrige que QGIS marcara el plugin como "incompatible" y le quitara el icono de la barra al reiniciar QGIS 4.x: faltaba declarar qgisMaximumVersion (sin ese limite, QGIS asume compatibilidad solo hasta 3.99). Ahora declara soporte explicito hasta QGIS 4.99.
+  1.2.0 La ventana del dialogo ahora es redimensionable a voluntad (se puede agrandar, achicar o maximizar) y su contenido queda dentro de una barra de desplazamiento vertical, para que quepa en pantallas pequenas; el registro de estado y los botones quedan siempre visibles debajo.
   1.1.0 Agrega exportacion opcional de los puntos ajustados a Shapefile (.shp, con elevacion Z si esta disponible) y a DXF (.dxf, con etiqueta de texto por punto). Las capas generadas ahora usan geometria 3D (PointZ) cuando hay columna de elevacion.
   1.0.1 Corrige compatibilidad con QGIS 4 / Qt6 (error "QLocale has no attribute C" al abrir el dialogo, y tipo de campo de las capas generadas). Funciona tanto en QGIS 3.16+ (Qt5) como en QGIS 4.x (Qt6).
   1.0.0 Version inicial: traslacion de coordenadas de base libre a base ajustada, reproyeccion a coordenadas geograficas y generacion de capas de puntos.
