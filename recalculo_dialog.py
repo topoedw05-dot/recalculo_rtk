@@ -50,9 +50,15 @@ from qgis.core import (
 from qgis.gui import QgsProjectionSelectionWidget
 
 from . import core
+from . import i18n
 
-PLACEHOLDER_COL = "-- Seleccione una columna --"
-PLACEHOLDER_COL_OPCIONAL = "-- No aplica / usar número de fila --"
+# Nota: estas dos constantes se mantienen por compatibilidad (por si algo
+# externo las importa), pero el texto real que ve el usuario ahora sale
+# siempre de i18n.tr(idioma, "placeholder_col"/"placeholder_col_opcional")
+# para poder mostrarse en español, inglés o portugués según el idioma de
+# QGIS.
+PLACEHOLDER_COL = i18n.tr(i18n.IDIOMA_DEFECTO, "placeholder_col")
+PLACEHOLDER_COL_OPCIONAL = i18n.tr(i18n.IDIOMA_DEFECTO, "placeholder_col_opcional")
 
 # CRS geográfico oficial para Colombia (MAGNA-SIRGAS). El usuario puede
 # cambiarlo libremente por cualquier otro (p. ej. WGS84 EPSG:4326) desde
@@ -61,7 +67,7 @@ CRS_GEOGRAFICO_DEFECTO = "EPSG:4686"
 
 # Debe mantenerse igual al valor "version" de metadata.txt; se usa para
 # identificar la versión del complemento en el reporte técnico opcional.
-VERSION_PLUGIN = "1.3.4"
+VERSION_PLUGIN = "1.4.0"
 
 
 def _valor_enum(clase, nombre, contenedor=None):
@@ -255,7 +261,14 @@ class RecalculoRTKDialog(QDialog):
     def __init__(self, iface, parent=None):
         super().__init__(parent)
         self.iface = iface
-        self.setWindowTitle("Recálculo de coordenadas RTK (libre → ajustada)")
+        # Idioma detectado automáticamente a partir de la configuración de
+        # QGIS (Configuración > Opciones > General > Idioma de la interfaz),
+        # sin selector manual: español, inglés o portugués de Brasil (ver
+        # i18n.detectar_idioma_qgis). Se detecta una sola vez al abrir el
+        # diálogo y se usa tanto para toda la interfaz como para el reporte
+        # técnico opcional.
+        self.idioma = i18n.detectar_idioma_qgis()
+        self.setWindowTitle(self._tr("window_title"))
 
         # La ventana debe poder agrandarse/achicarse libremente (incluida
         # la posibilidad de maximizarla), ya que su contenido no siempre
@@ -284,6 +297,10 @@ class RecalculoRTKDialog(QDialog):
 
         self._build_ui()
 
+    def _tr(self, clave, **kwargs):
+        """Atajo para ``i18n.tr(self.idioma, clave, **kwargs)``."""
+        return i18n.tr(self.idioma, clave, **kwargs)
+
     # ------------------------------------------------------------------
     # Construcción de la interfaz
     # ------------------------------------------------------------------
@@ -304,36 +321,30 @@ class RecalculoRTKDialog(QDialog):
         layout = QVBoxLayout(contenido)
         layout.setContentsMargins(12, 12, 12, 12)
 
-        intro = QLabel(
-            "Recalcula un archivo de puntos levantados con una base RTK de "
-            "coordenadas libres, trasladándolos a coordenadas ajustadas a "
-            "partir del postproceso estático de esa misma base. Se "
-            "recalculan tanto las coordenadas planas (proyectadas) como "
-            "las geográficas."
-        )
+        intro = QLabel(self._tr("intro_text"))
         intro.setWordWrap(True)
         layout.addWidget(intro)
 
         # --- Coordenadas de la base ---------------------------------
         bases_layout = QHBoxLayout()
         self.grp_libre, self.ed_libre = self._build_coord_group(
-            "Base RTK libre (tomada en campo)"
+            self._tr("grp_base_libre")
         )
         self.grp_ajustada, self.ed_ajustada = self._build_coord_group(
-            "Base ajustada (postproceso estático)"
+            self._tr("grp_base_ajustada")
         )
         bases_layout.addWidget(self.grp_libre)
         bases_layout.addWidget(self.grp_ajustada)
         layout.addLayout(bases_layout)
 
         # --- Archivo CSV ----------------------------------------------
-        grp_csv = QGroupBox("Archivo CSV de puntos a recalcular (delimitado por comas)")
+        grp_csv = QGroupBox(self._tr("grp_csv"))
         csv_layout = QVBoxLayout(grp_csv)
 
         fila_archivo = QHBoxLayout()
         self.ed_csv_path = QLineEdit()
-        self.ed_csv_path.setPlaceholderText("Seleccione el archivo .csv de entrada...")
-        btn_examinar = QPushButton("Examinar...")
+        self.ed_csv_path.setPlaceholderText(self._tr("placeholder_csv_path"))
+        btn_examinar = QPushButton(self._tr("btn_examinar"))
         btn_examinar.clicked.connect(self._on_examinar_csv)
         fila_archivo.addWidget(self.ed_csv_path)
         fila_archivo.addWidget(btn_examinar)
@@ -344,98 +355,87 @@ class RecalculoRTKDialog(QDialog):
         self.cb_col_x = QComboBox()
         self.cb_col_y = QComboBox()
         self.cb_col_z = QComboBox()
-        cols_form.addRow("Columna ID (opcional):", self.cb_col_id)
-        cols_form.addRow("Columna X / Este:", self.cb_col_x)
-        cols_form.addRow("Columna Y / Norte:", self.cb_col_y)
-        cols_form.addRow("Columna Z / Elevación (opcional):", self.cb_col_z)
+        cols_form.addRow(self._tr("lbl_col_id"), self.cb_col_id)
+        cols_form.addRow(self._tr("lbl_col_x"), self.cb_col_x)
+        cols_form.addRow(self._tr("lbl_col_y"), self.cb_col_y)
+        cols_form.addRow(self._tr("lbl_col_z"), self.cb_col_z)
         csv_layout.addLayout(cols_form)
         self._set_column_combos_enabled(False)
 
         layout.addWidget(grp_csv)
 
         # --- Sistemas de referencia -------------------------------------
-        grp_crs = QGroupBox("Sistemas de referencia")
+        grp_crs = QGroupBox(self._tr("grp_crs"))
         crs_layout = QFormLayout(grp_crs)
 
         self.crs_plano_widget = QgsProjectionSelectionWidget()
         crs_actual = self.iface.mapCanvas().mapSettings().destinationCrs() if self.iface else None
         if crs_actual and crs_actual.isValid():
             self.crs_plano_widget.setCrs(crs_actual)
-        crs_layout.addRow("CRS plano/proyectado de las coordenadas X, Y:", self.crs_plano_widget)
+        crs_layout.addRow(self._tr("lbl_crs_plano"), self.crs_plano_widget)
 
         self.crs_geo_widget = QgsProjectionSelectionWidget()
         self.crs_geo_widget.setCrs(QgsCoordinateReferenceSystem(CRS_GEOGRAFICO_DEFECTO))
-        crs_layout.addRow("CRS geográfico de salida (lon/lat):", self.crs_geo_widget)
+        crs_layout.addRow(self._tr("lbl_crs_geo"), self.crs_geo_widget)
 
         layout.addWidget(grp_crs)
 
         # --- Salida -------------------------------------------------------
-        grp_salida = QGroupBox("Resultado")
+        grp_salida = QGroupBox(self._tr("grp_resultado"))
         salida_layout = QVBoxLayout(grp_salida)
 
         fila_salida = QHBoxLayout()
         self.ed_out_path = QLineEdit()
-        self.ed_out_path.setPlaceholderText("Ruta del CSV de salida...")
-        btn_salida = QPushButton("Guardar como...")
+        self.ed_out_path.setPlaceholderText(self._tr("placeholder_out_path"))
+        btn_salida = QPushButton(self._tr("btn_guardar_como"))
         btn_salida.clicked.connect(self._on_examinar_salida)
         fila_salida.addWidget(self.ed_out_path)
         fila_salida.addWidget(btn_salida)
         salida_layout.addLayout(fila_salida)
 
-        self.chk_capa_ajustada = QCheckBox("Agregar capa de puntos AJUSTADOS al proyecto")
+        self.chk_capa_ajustada = QCheckBox(self._tr("chk_capa_ajustada"))
         self.chk_capa_ajustada.setChecked(True)
-        self.chk_capa_libre = QCheckBox("Agregar capa de puntos LIBRES (originales) al proyecto")
+        self.chk_capa_libre = QCheckBox(self._tr("chk_capa_libre"))
         salida_layout.addWidget(self.chk_capa_ajustada)
         salida_layout.addWidget(self.chk_capa_libre)
 
         layout.addWidget(grp_salida)
 
         # --- Formatos adicionales de exportación (de los puntos ajustados) ---
-        grp_export = QGroupBox("Exportar puntos ajustados también en otros formatos")
+        grp_export = QGroupBox(self._tr("grp_export_adicional"))
         export_layout = QVBoxLayout(grp_export)
 
         self.chk_export_shp, self.ed_shp_path, btn_shp = self._build_export_row(
-            export_layout, "Exportar a Shapefile (.shp)", self._on_examinar_shp
+            export_layout, self._tr("chk_export_shp"), self._on_examinar_shp
         )
         self.chk_export_dxf, self.ed_dxf_path, btn_dxf = self._build_export_row(
-            export_layout, "Exportar a DXF (.dxf)", self._on_examinar_dxf
+            export_layout, self._tr("chk_export_dxf"), self._on_examinar_dxf
         )
 
-        nota_dxf = QLabel(
-            "Nota: el formato DXF no maneja una tabla de atributos como tal; se exporta la "
-            "geometría de los puntos (con elevación si está disponible) junto con una etiqueta "
-            "de texto por punto (la columna ID si fue seleccionada, o un consecutivo P1, P2...)."
-        )
+        nota_dxf = QLabel(self._tr("nota_dxf"))
         nota_dxf.setWordWrap(True)
         export_layout.addWidget(nota_dxf)
 
         layout.addWidget(grp_export)
 
         # --- Reporte técnico (opcional) --------------------------------
-        grp_reporte = QGroupBox("Reporte técnico (opcional)")
+        grp_reporte = QGroupBox(self._tr("grp_reporte"))
         reporte_layout = QVBoxLayout(grp_reporte)
 
         datos_form = QFormLayout()
         self.ed_reporte_proyecto = QLineEdit()
-        self.ed_reporte_proyecto.setPlaceholderText("Nombre del predio/proyecto (opcional)")
+        self.ed_reporte_proyecto.setPlaceholderText(self._tr("placeholder_proyecto"))
         self.ed_reporte_responsable = QLineEdit()
-        self.ed_reporte_responsable.setPlaceholderText("Responsable del levantamiento (opcional)")
-        datos_form.addRow("Proyecto:", self.ed_reporte_proyecto)
-        datos_form.addRow("Responsable:", self.ed_reporte_responsable)
+        self.ed_reporte_responsable.setPlaceholderText(self._tr("placeholder_responsable"))
+        datos_form.addRow(self._tr("lbl_proyecto"), self.ed_reporte_proyecto)
+        datos_form.addRow(self._tr("lbl_responsable"), self.ed_reporte_responsable)
         reporte_layout.addLayout(datos_form)
 
         self.chk_reporte, self.ed_reporte_path, btn_reporte = self._build_export_row(
-            reporte_layout, "Generar reporte técnico (HTML)", self._on_examinar_reporte
+            reporte_layout, self._tr("chk_reporte"), self._on_examinar_reporte
         )
 
-        nota_reporte = QLabel(
-            "El reporte es una página HTML (se abre con cualquier navegador) con las "
-            "coordenadas de ambas bases, el vector de traslación aplicado, el detalle "
-            "completo de los sistemas de referencia usados (equivalente y las mismas "
-            "propiedades que muestra QGIS/ArcGIS para un CRS) y el listado completo de "
-            "puntos recalculados. Es opcional: solo se genera si el usuario lo requiere, "
-            "por ejemplo como soporte técnico del trabajo realizado."
-        )
+        nota_reporte = QLabel(self._tr("nota_reporte"))
         nota_reporte.setWordWrap(True)
         reporte_layout.addWidget(nota_reporte)
 
@@ -456,15 +456,15 @@ class RecalculoRTKDialog(QDialog):
         self.txt_log = QPlainTextEdit()
         self.txt_log.setReadOnly(True)
         self.txt_log.setMaximumHeight(110)
-        self.txt_log.setPlaceholderText("Aquí aparecerá el resultado del proceso...")
+        self.txt_log.setPlaceholderText(self._tr("placeholder_log"))
         pie.addWidget(self.txt_log)
 
         # --- Botones ----------------------------------------------------
         botones = QDialogButtonBox()
-        self.btn_ejecutar = QPushButton("Calcular y exportar")
+        self.btn_ejecutar = QPushButton(self._tr("btn_calcular"))
         self.btn_ejecutar.clicked.connect(self._on_ejecutar)
         botones.addButton(self.btn_ejecutar, _valor_enum(QDialogButtonBox, "ActionRole", "ButtonRole"))
-        btn_cerrar = QPushButton("Cerrar")
+        btn_cerrar = QPushButton(self._tr("btn_cerrar"))
         btn_cerrar.clicked.connect(self.close)
         botones.addButton(btn_cerrar, _valor_enum(QDialogButtonBox, "RejectRole", "ButtonRole"))
         pie.addWidget(botones)
@@ -483,8 +483,10 @@ class RecalculoRTKDialog(QDialog):
         ed_x = QLineEdit()
         ed_y = QLineEdit()
         ed_z = QLineEdit()
-        for ed, etiqueta in ((ed_x, "X / Este:"), (ed_y, "Y / Norte:"), (ed_z, "Z / Elevación:")):
-            ed.setPlaceholderText("0.000")
+        for ed, etiqueta in (
+            (ed_x, self._tr("lbl_x")), (ed_y, self._tr("lbl_y")), (ed_z, self._tr("lbl_z"))
+        ):
+            ed.setPlaceholderText(self._tr("placeholder_num"))
             form.addRow(etiqueta, ed)
 
         return grupo, {"x": ed_x, "y": ed_y, "z": ed_z}
@@ -498,7 +500,7 @@ class RecalculoRTKDialog(QDialog):
         fila = QHBoxLayout()
         campo_ruta = QLineEdit()
         campo_ruta.setEnabled(False)
-        boton = QPushButton("Guardar como...")
+        boton = QPushButton(self._tr("btn_guardar_como"))
         boton.setEnabled(False)
         boton.clicked.connect(manejador_examinar)
         fila.addWidget(campo_ruta)
@@ -520,7 +522,7 @@ class RecalculoRTKDialog(QDialog):
     # ------------------------------------------------------------------
     def _on_examinar_csv(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Seleccionar archivo CSV", "", "Archivos CSV (*.csv);;Todos los archivos (*)"
+            self, self._tr("dlg_sel_csv_titulo"), "", self._tr("filtro_csv")
         )
         if not path:
             return
@@ -531,12 +533,12 @@ class RecalculoRTKDialog(QDialog):
         try:
             header, rows = core.read_csv_rows(path)
         except Exception as exc:
-            QMessageBox.critical(self, "Error al leer CSV", "No se pudo leer el archivo:\n{}".format(exc))
+            QMessageBox.critical(self, self._tr("err_leer_csv_titulo"), self._tr("err_leer_csv_msg", error=exc))
             self._set_column_combos_enabled(False)
             return
 
         if not header:
-            QMessageBox.warning(self, "Archivo vacío", "El archivo CSV no contiene datos.")
+            QMessageBox.warning(self, self._tr("warn_archivo_vacio_titulo"), self._tr("warn_archivo_vacio_msg"))
             self._set_column_combos_enabled(False)
             return
 
@@ -548,10 +550,12 @@ class RecalculoRTKDialog(QDialog):
         self.cb_col_y.clear()
         self.cb_col_z.clear()
 
-        self.cb_col_id.addItem(PLACEHOLDER_COL_OPCIONAL)
-        self.cb_col_z.addItem(PLACEHOLDER_COL_OPCIONAL)
-        self.cb_col_x.addItem(PLACEHOLDER_COL)
-        self.cb_col_y.addItem(PLACEHOLDER_COL)
+        placeholder_col = self._tr("placeholder_col")
+        placeholder_col_opcional = self._tr("placeholder_col_opcional")
+        self.cb_col_id.addItem(placeholder_col_opcional)
+        self.cb_col_z.addItem(placeholder_col_opcional)
+        self.cb_col_x.addItem(placeholder_col)
+        self.cb_col_y.addItem(placeholder_col)
 
         for nombre in header:
             self.cb_col_id.addItem(nombre)
@@ -560,15 +564,21 @@ class RecalculoRTKDialog(QDialog):
             self.cb_col_z.addItem(nombre)
 
         # Adivinar columnas comunes por nombre, como comodidad (el
-        # usuario siempre puede cambiarlas).
-        self._preseleccionar_columna(self.cb_col_x, ("x", "este", "easting", "longitud", "lon"))
-        self._preseleccionar_columna(self.cb_col_y, ("y", "norte", "northing", "latitud", "lat"))
-        self._preseleccionar_columna(self.cb_col_z, ("z", "elevacion", "elevación", "cota", "altura", "h"))
-        self._preseleccionar_columna(self.cb_col_id, ("id", "punto", "codigo", "código", "nombre"))
+        # usuario siempre puede cambiarlas). Los nombres candidatos
+        # incluyen equivalentes en español, inglés y portugués, ya que
+        # el CSV del usuario puede venir con encabezados en cualquiera
+        # de los tres idiomas independientemente del idioma de la
+        # interfaz del complemento.
+        self._preseleccionar_columna(self.cb_col_x, ("x", "este", "easting", "longitud", "lon", "longitude"))
+        self._preseleccionar_columna(self.cb_col_y, ("y", "norte", "northing", "latitud", "lat", "latitude"))
+        self._preseleccionar_columna(
+            self.cb_col_z, ("z", "elevacion", "elevación", "elevation", "elevação", "cota", "altura", "h"))
+        self._preseleccionar_columna(
+            self.cb_col_id, ("id", "punto", "point", "ponto", "codigo", "código", "code", "nombre", "name", "nome"))
 
         self._set_column_combos_enabled(True)
-        self._log("Se cargaron {} columnas y {} filas de datos desde: {}".format(
-            len(header), len(rows), os.path.basename(path)))
+        self._log(self._tr("log_columnas_cargadas", n_col=len(header), n_filas=len(rows),
+                            archivo=os.path.basename(path)))
 
         if not self.ed_out_path.text().strip():
             base, ext = os.path.splitext(path)
@@ -585,7 +595,7 @@ class RecalculoRTKDialog(QDialog):
 
     def _on_examinar_salida(self):
         path, _ = QFileDialog.getSaveFileName(
-            self, "Guardar CSV recalculado", self.ed_out_path.text(), "Archivos CSV (*.csv)"
+            self, self._tr("dlg_guardar_csv_titulo"), self.ed_out_path.text(), self._tr("filtro_csv_solo")
         )
         if path:
             self.ed_out_path.setText(path)
@@ -609,7 +619,7 @@ class RecalculoRTKDialog(QDialog):
         sugerido = self.ed_shp_path.text().strip() or core.sugerir_ruta_con_extension(
             self.ed_out_path.text().strip() or "salida.csv", ".shp"
         )
-        path, _ = QFileDialog.getSaveFileName(self, "Guardar Shapefile", sugerido, "Shapefile (*.shp)")
+        path, _ = QFileDialog.getSaveFileName(self, self._tr("dlg_guardar_shp_titulo"), sugerido, self._tr("filtro_shp"))
         if path:
             self.ed_shp_path.setText(path)
 
@@ -617,7 +627,7 @@ class RecalculoRTKDialog(QDialog):
         sugerido = self.ed_dxf_path.text().strip() or core.sugerir_ruta_con_extension(
             self.ed_out_path.text().strip() or "salida.csv", ".dxf"
         )
-        path, _ = QFileDialog.getSaveFileName(self, "Guardar DXF", sugerido, "DXF (*.dxf)")
+        path, _ = QFileDialog.getSaveFileName(self, self._tr("dlg_guardar_dxf_titulo"), sugerido, self._tr("filtro_dxf"))
         if path:
             self.ed_dxf_path.setText(path)
 
@@ -627,7 +637,7 @@ class RecalculoRTKDialog(QDialog):
             csv_out = self.ed_out_path.text().strip() or "salida.csv"
             base, _ext = os.path.splitext(csv_out)
             sugerido = base + "_reporte.html"
-        path, _ = QFileDialog.getSaveFileName(self, "Guardar reporte técnico", sugerido, "HTML (*.html)")
+        path, _ = QFileDialog.getSaveFileName(self, self._tr("dlg_guardar_reporte_titulo"), sugerido, self._tr("filtro_html"))
         if path:
             self.ed_reporte_path.setText(path)
 
@@ -642,7 +652,7 @@ class RecalculoRTKDialog(QDialog):
             x = core.parse_float(campos["x"].text())
             y = core.parse_float(campos["y"].text())
         except ValueError as exc:
-            raise ValueError("Coordenadas X/Y de la {} inválidas: {}".format(nombre_base, exc))
+            raise ValueError(self._tr("err_base_xy_invalida", nombre_base=nombre_base, error=exc))
 
         z_text = campos["z"].text().strip()
         z = None
@@ -650,7 +660,7 @@ class RecalculoRTKDialog(QDialog):
             try:
                 z = core.parse_float(z_text)
             except ValueError as exc:
-                raise ValueError("Elevación Z de la {} inválida: {}".format(nombre_base, exc))
+                raise ValueError(self._tr("err_base_z_invalida", nombre_base=nombre_base, error=exc))
         return x, y, z
 
     def _indice_columna(self, combo, opcional):
@@ -665,14 +675,14 @@ class RecalculoRTKDialog(QDialog):
     def _on_ejecutar(self):
         self.txt_log.clear()
         try:
-            base_libre = self._leer_base(self.ed_libre, "base libre")
-            base_ajustada = self._leer_base(self.ed_ajustada, "base ajustada")
+            base_libre = self._leer_base(self.ed_libre, self._tr("nombre_base_libre"))
+            base_ajustada = self._leer_base(self.ed_ajustada, self._tr("nombre_base_ajustada"))
         except ValueError as exc:
-            QMessageBox.warning(self, "Datos incompletos", str(exc))
+            QMessageBox.warning(self, self._tr("warn_datos_incompletos_titulo"), str(exc))
             return
 
         if not self._csv_header:
-            QMessageBox.warning(self, "Falta el CSV", "Seleccione primero el archivo CSV de puntos a recalcular.")
+            QMessageBox.warning(self, self._tr("warn_falta_csv_titulo"), self._tr("warn_falta_csv_msg"))
             return
 
         idx_x = self._indice_columna(self.cb_col_x, opcional=False)
@@ -682,53 +692,52 @@ class RecalculoRTKDialog(QDialog):
 
         if idx_x is None or idx_y is None:
             QMessageBox.warning(
-                self, "Columnas incompletas",
-                "Debe seleccionar la columna X/Este y la columna Y/Norte del CSV."
+                self, self._tr("warn_columnas_incompletas_titulo"), self._tr("warn_columnas_incompletas_msg")
             )
             return
         if idx_x == idx_y or (idx_z is not None and idx_z in (idx_x, idx_y)):
-            QMessageBox.warning(self, "Columnas repetidas", "Las columnas X, Y y Z deben ser distintas entre sí.")
+            QMessageBox.warning(self, self._tr("warn_columnas_repetidas_titulo"), self._tr("warn_columnas_repetidas_msg"))
             return
 
         out_path = self.ed_out_path.text().strip()
         if not out_path:
-            QMessageBox.warning(self, "Falta ruta de salida", "Indique dónde guardar el CSV recalculado.")
+            QMessageBox.warning(self, self._tr("warn_falta_salida_titulo"), self._tr("warn_falta_salida_msg"))
             return
 
         exportar_shp = self.chk_export_shp.isChecked()
         ruta_shp = self.ed_shp_path.text().strip()
         if exportar_shp and not ruta_shp:
-            QMessageBox.warning(self, "Falta ruta de Shapefile", "Indique dónde guardar el Shapefile (.shp).")
+            QMessageBox.warning(self, self._tr("warn_falta_shp_titulo"), self._tr("warn_falta_shp_msg"))
             return
 
         exportar_dxf = self.chk_export_dxf.isChecked()
         ruta_dxf = self.ed_dxf_path.text().strip()
         if exportar_dxf and not ruta_dxf:
-            QMessageBox.warning(self, "Falta ruta de DXF", "Indique dónde guardar el DXF (.dxf).")
+            QMessageBox.warning(self, self._tr("warn_falta_dxf_titulo"), self._tr("warn_falta_dxf_msg"))
             return
 
         generar_reporte = self.chk_reporte.isChecked()
         ruta_reporte = self.ed_reporte_path.text().strip()
         if generar_reporte and not ruta_reporte:
-            QMessageBox.warning(self, "Falta ruta del reporte", "Indique dónde guardar el reporte técnico (.html).")
+            QMessageBox.warning(self, self._tr("warn_falta_reporte_titulo"), self._tr("warn_falta_reporte_msg"))
             return
 
         crs_plano = self.crs_plano_widget.crs()
         crs_geo = self.crs_geo_widget.crs()
         if not crs_plano.isValid() or not crs_geo.isValid():
-            QMessageBox.warning(self, "CRS inválido", "Seleccione un sistema de referencia plano y uno geográfico válidos.")
+            QMessageBox.warning(self, self._tr("warn_crs_invalido_titulo"), self._tr("warn_crs_invalido_msg"))
             return
 
         dx, dy, dz = core.compute_delta(base_libre, base_ajustada)
-        self._log("Vector de traslación calculado:  ΔX = {:.4f}   ΔY = {:.4f}   ΔZ = {}".format(
-            dx, dy, "{:.4f}".format(dz) if dz is not None else "N/A (sin elevación en ambas bases)"))
+        dz_texto = "{:.4f}".format(dz) if dz is not None else self._tr("log_dz_na")
+        self._log(self._tr("log_vector_calculado", dx="{:.4f}".format(dx), dy="{:.4f}".format(dy), dz=dz_texto))
 
         resultados, errores = core.recalcular_filas(
             self._csv_header, self._csv_rows, idx_x, idx_y, idx_z, dx, dy, dz
         )
 
         if not resultados:
-            QMessageBox.critical(self, "Sin datos válidos", "Ninguna fila del CSV pudo procesarse. Revise las columnas seleccionadas.")
+            QMessageBox.critical(self, self._tr("err_sin_datos_validos_titulo"), self._tr("err_sin_datos_validos_msg"))
             return
 
         transform = QgsCoordinateTransform(crs_plano, crs_geo, QgsProject.instance())
@@ -769,19 +778,19 @@ class RecalculoRTKDialog(QDialog):
         try:
             core.write_csv_rows(out_path, nuevo_header, nuevas_filas)
         except Exception as exc:
-            QMessageBox.critical(self, "Error al guardar", "No se pudo escribir el archivo de salida:\n{}".format(exc))
+            QMessageBox.critical(self, self._tr("err_guardar_titulo"), self._tr("err_guardar_msg", error=exc))
             return
 
-        self._log("Se recalcularon {} de {} puntos correctamente.".format(len(resultados), len(self._csv_rows)))
+        self._log(self._tr("log_recalculo_ok", ok=len(resultados), total=len(self._csv_rows)))
         if errores:
-            self._log("{} fila(s) se omitieron por errores de formato (ver detalle abajo).".format(len(errores)))
+            self._log(self._tr("log_filas_omitidas", n=len(errores)))
             for num, msg in errores[:10]:
-                self._log("  Fila {}: {}".format(num, msg))
+                self._log(self._tr("log_fila_error", num=num, msg=msg))
             if len(errores) > 10:
-                self._log("  ... y {} error(es) más.".format(len(errores) - 10))
+                self._log(self._tr("log_mas_errores", n=len(errores) - 10))
         if errores_transform:
-            self._log("{} punto(s) no pudieron reproyectarse a coordenadas geográficas.".format(errores_transform))
-        self._log("Archivo generado: {}".format(out_path))
+            self._log(self._tr("log_errores_transform", n=errores_transform))
+        self._log(self._tr("log_archivo_generado", ruta=out_path))
 
         nombre_id = self._csv_header[idx_id] if idx_id is not None else None
         idx_z_ajustada = len(self._csv_header) + 2  # posición de "Z_ajustada" en nuevo_header
@@ -792,7 +801,7 @@ class RecalculoRTKDialog(QDialog):
         capa_ajustada = None
         if self.chk_capa_ajustada.isChecked() or exportar_shp:
             capa_ajustada = self._crear_capa_puntos(
-                "Puntos ajustados (RTK)", crs_plano, nuevo_header, nuevas_filas,
+                self._tr("capa_ajustada_nombre"), crs_plano, nuevo_header, nuevas_filas,
                 x_field_idx=len(self._csv_header) + 0,
                 y_field_idx=len(self._csv_header) + 1,
                 z_field_idx=idx_z_ajustada,
@@ -803,7 +812,7 @@ class RecalculoRTKDialog(QDialog):
         if self.chk_capa_libre.isChecked():
             filas_libres = [r["original"] for r in resultados]
             self._crear_capa_puntos(
-                "Puntos libres (originales)", crs_plano, self._csv_header, filas_libres,
+                self._tr("capa_libre_nombre"), crs_plano, self._csv_header, filas_libres,
                 x_field_idx=idx_x, y_field_idx=idx_y, z_field_idx=idx_z,
                 id_field_name=nombre_id,
                 agregar_al_proyecto=True,
@@ -811,21 +820,21 @@ class RecalculoRTKDialog(QDialog):
 
         if exportar_shp:
             if capa_ajustada is None:
-                self._log("No se pudo preparar la capa para exportar a Shapefile.")
+                self._log(self._tr("log_no_capa_shp"))
             else:
                 ok, msg = self._exportar_vector_archivo(capa_ajustada, ruta_shp, "ESRI Shapefile")
                 if ok:
-                    self._log("Shapefile generado: {}".format(ruta_shp))
+                    self._log(self._tr("log_shp_generado", ruta=ruta_shp))
                 else:
-                    self._log("No se pudo generar el Shapefile: {}".format(msg))
+                    self._log(self._tr("log_shp_error", msg=msg))
 
         if exportar_dxf:
             capa_dxf = self._crear_capa_dxf(crs_plano, resultados, idx_id)
             ok, msg = self._exportar_vector_archivo(capa_dxf, ruta_dxf, "DXF")
             if ok:
-                self._log("DXF generado: {}".format(ruta_dxf))
+                self._log(self._tr("log_dxf_generado", ruta=ruta_dxf))
             else:
-                self._log("No se pudo generar el DXF: {}".format(msg))
+                self._log(self._tr("log_dxf_error", msg=msg))
 
         reporte_ok = False
         if generar_reporte:
@@ -851,25 +860,30 @@ class RecalculoRTKDialog(QDialog):
                 "errores": errores,
                 "errores_transform": errores_transform,
                 "puntos": puntos_reporte,
+                # El reporte técnico se genera en el mismo idioma detectado
+                # para la interfaz del complemento (ver __init__ / i18n.py).
+                "idioma": self.idioma,
             }
             html_reporte = core.construir_reporte_html(info_reporte)
             ok, msg = self._generar_reporte_html(html_reporte, ruta_reporte)
             if ok:
                 reporte_ok = True
-                self._log("Reporte técnico generado: {}".format(ruta_reporte))
+                self._log(self._tr("log_reporte_generado", ruta=ruta_reporte))
             else:
-                self._log("No se pudo generar el reporte técnico: {}".format(msg))
+                self._log(self._tr("log_reporte_error", msg=msg))
 
-        resumen = "Se generó el archivo:\n{}\n\nPuntos procesados: {}\nPuntos omitidos: {}".format(
-            out_path, len(resultados), len(errores))
+        resumen = self._tr("resumen_principal", ruta=out_path, procesados=len(resultados), omitidos=len(errores))
         if exportar_shp:
-            resumen += "\nShapefile: {}".format(ruta_shp)
+            resumen += self._tr("resumen_shp", ruta=ruta_shp)
         if exportar_dxf:
-            resumen += "\nDXF: {}".format(ruta_dxf)
+            resumen += self._tr("resumen_dxf", ruta=ruta_dxf)
         if generar_reporte:
-            resumen += "\nReporte técnico: {}".format(ruta_reporte if reporte_ok else "no se pudo generar (ver registro)")
+            resumen += self._tr(
+                "resumen_reporte",
+                ruta=ruta_reporte if reporte_ok else self._tr("resumen_reporte_no_generado"),
+            )
 
-        QMessageBox.information(self, "Proceso terminado", resumen)
+        QMessageBox.information(self, self._tr("info_proceso_terminado_titulo"), resumen)
 
     # ------------------------------------------------------------------
     # Creación de capas de puntos en el proyecto

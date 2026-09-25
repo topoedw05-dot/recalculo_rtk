@@ -57,6 +57,33 @@ recomienda un ajuste de red completo, no una simple traslación).
    usados y listado completo de puntos), por si el usuario lo requiere
    como soporte del trabajo.
 
+## Idioma / Language / Idioma
+
+El complemento está disponible en **español**, **inglés** e **portugués de
+Brasil**. El idioma se detecta automáticamente a partir del idioma
+configurado en la propia interfaz de QGIS (`Configuración → Opciones →
+General → Idioma de la interfaz`) — no hay ningún selector manual dentro
+del complemento. Si QGIS está en un idioma distinto a esos tres, el
+complemento se muestra en español por defecto. Tanto la ventana del
+complemento como el reporte técnico en HTML (si se genera) se muestran en
+el idioma detectado.
+
+*The plugin is available in Spanish, English and Brazilian Portuguese. The
+language is detected automatically from QGIS's own interface language
+setting (`Settings → Options → General → Interface language`) — there is
+no manual language switcher inside the plugin. If QGIS is set to a
+different language, the plugin falls back to Spanish. Both the plugin
+dialog and the optional HTML technical report are shown in the detected
+language.*
+
+*O complemento está disponível em espanhol, inglês e português do Brasil.
+O idioma é detectado automaticamente a partir do idioma configurado na
+própria interface do QGIS (`Configurações → Opções → Geral → Idioma da
+interface`) — não há seletor manual de idioma dentro do complemento. Se o
+QGIS estiver em outro idioma, o complemento usa espanhol por padrão. Tanto
+a janela do complemento quanto o relatório técnico em HTML (se gerado) são
+exibidos no idioma detectado.*
+
 ## Instalación
 
 **Opción A — Instalar desde ZIP (recomendada):**
@@ -231,6 +258,11 @@ QGIS 4.x.
 - El archivo `core.py` contiene toda la aritmética del complemento sin
   ninguna dependencia de QGIS, y se puede probar de forma aislada con
   Python estándar (ver `test_core.py`).
+- El archivo `i18n.py` contiene las traducciones (español/inglés/portugués
+  de Brasil) y la función que detecta el idioma configurado en QGIS
+  (`i18n.detectar_idioma_qgis`). Tampoco depende de QGIS para las
+  traducciones en sí (solo la detección del idioma necesita `qgis.PyQt`),
+  así que también se puede probar con Python estándar.
 
 ## Publicar en el repositorio oficial de QGIS (plugins.qgis.org)
 
