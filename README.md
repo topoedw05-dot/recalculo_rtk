@@ -191,10 +191,23 @@ P3,999987.100,1000022.400,2601.120,PR-2
   ajustados (en 3D si hay elevación) junto con una etiqueta de texto por
   punto — la columna ID si la seleccionó, o un consecutivo `P1, P2, ...`
   si no. Esa etiqueta aparece en AutoCAD/Civil3D como una entidad de
-  texto junto a cada punto (convención del driver DXF de GDAL/OGR: un
-  campo llamado exactamente `Text`).
+  texto (MTEXT) junto a cada punto (convención del driver DXF de
+  GDAL/OGR: el campo especial `OGR_STYLE` con un "Feature Style String"
+  `LABEL(t:"...")`).
 - Ambos formatos son opcionales e independientes entre sí y del CSV de
   salida, que siempre se genera.
+- **Coordenadas que se grafican:** si activó la corrección opcional de
+  **época (VEMOS)** (ver más abajo), los puntos quedan ubicados en sus
+  coordenadas **ya corregidas** a la época destino — tanto en la capa
+  "Puntos ajustados" del proyecto como en el Shapefile y el DXF
+  exportados. Un punto que cae fuera de la cobertura real del modelo
+  VEMOS elegido (poco frecuente, se avisa en el registro) se grafica con
+  su coordenada ajustada **sin** corregir, igual que si la corrección no
+  estuviera activada. Si no activó la corrección de época, los puntos
+  siempre se grafican con su coordenada ajustada por la base RTK, sin
+  cambios. Esto solo afecta a la **geometría**: los atributos del
+  Shapefile (`X_ajustada`, `Y_ajustada`, `Z_ajustada`, ...) siguen
+  mostrando el valor ajustado sin corregir, igual que el CSV.
 
 ## Reporte técnico (opcional)
 
@@ -223,7 +236,13 @@ también puede imprimirse a PDF desde el navegador si se necesita un PDF:
   reproyectar.
 - Listado completo de los puntos recalculados, con sus coordenadas
   originales y ajustadas con 3 decimales, y las coordenadas geográficas
-  en formato grados-minutos-segundos (5 decimales en los segundos).
+  en formato grados-minutos-segundos (5 decimales en los segundos). Si se
+  activó la corrección de época (VEMOS), el listado agrega además, por
+  cada punto, sus coordenadas **ya corregidas por el modelo de
+  velocidades** (X/Y/Z época, longitud/latitud época y el desplazamiento
+  en metros); un punto fuera de la cobertura real del modelo elegido
+  queda como "N/A" en esas columnas, igual que queda vacío en el CSV de
+  salida.
 
 El diseño usa tarjetas para los sistemas de referencia, títulos
 centrados y en mayúscula, y una tabla de puntos con desplazamiento
@@ -235,6 +254,52 @@ necesita, no se genera nada. Se escribe como un archivo `.html` plano,
 sin depender de ninguna librería externa que haya que instalar aparte
 dentro del Python de QGIS, así que funciona igual en QGIS 3.16+ y en
 QGIS 4.x.
+
+## Corrección de época (VEMOS, opcional)
+
+El complemento puede además llevar las coordenadas geográficas ya
+ajustadas (traducidas) desde su **época de observación** hasta una
+**época destino** — por ejemplo MAGNA-SIRGAS (ITRF2014, época 2018.0,
+Resolución IGAC 715 de 2018) — usando los modelos de velocidades
+**VEMOS** del Centro de Análisis SIRGAS (DGFI-TUM): VEMOS2022,
+VEMOS2017, VEMOS2015 y VEMOS2009. Es un paso **opcional** (casilla sin
+marcar por defecto, igual que el reporte técnico) y pensado para el
+caso en que la base ajustada venga de un postproceso estático en
+PPP/RTX referido a un marco ITRF en la época de la observación, no en
+la época oficial del marco. Si la base ajustada ya está en MAGNA-SIRGAS
+2018.0 (el caso más común en Colombia), este paso no hace falta.
+
+Qué hace y qué NO hace:
+
+- Cambia **solo la época** de la coordenada dentro del **mismo marco de
+  referencia**: `X(época_destino) = X(época_obs) + V·(época_destino −
+  época_obs)`, en coordenadas geocéntricas. No cambia el marco ITRF, no
+  recalcula la altura por geoide, y no incluye saltos cosísmicos
+  (desplazamientos abruptos por sismos).
+- Los cuatro modelos se incluyen con el complemento (carpeta
+  `vemos_data/`, ver `vemos_data/LEEME.txt` para las citas de los
+  autores), así que funciona sin conexión a internet.
+- La **época de observación** se elige con un selector de **fecha**
+  (calendario): el complemento calcula solo el año decimal a partir de
+  esa fecha (mismo cálculo día-del-año que usa `vemos.epoca_decimal`) y
+  lo muestra junto al campo, por ejemplo "→ año decimal: 2020.499".
+- Ningún modelo cubre todo el continente (VEMOS2022, por ejemplo, llega
+  solo hasta 13°N: no cubre México ni el Caribe). Los puntos que caen
+  fuera de la zona de cobertura real del modelo elegido quedan **sin
+  corregir** y se avisa en el registro y en el reporte técnico.
+- El CSV de salida mantiene las columnas `X/Y/Z_ajustada` y
+  `Lon/Lat_ajustada` sin corrección de época (igual que sin esta
+  opción) y agrega columnas nuevas con el resultado corregido:
+  `X_epoca`, `Y_epoca`, `Z_epoca`, `Lon_epoca`, `Lat_epoca`,
+  `Desplazamiento_epoca_m`, `Modelo_epoca`, `Epoca_obs` y
+  `Epoca_destino`.
+- Si se genera el reporte técnico, se agrega una sección con el modelo
+  usado, su marco de referencia, la época destino/observación, la zona
+  de cobertura real y cuántos puntos se corrigieron.
+- Con esta opción activada, la **geometría** de los puntos graficados
+  (capa del proyecto, Shapefile y DXF) queda en la coordenada ya
+  corregida a la época destino — ver "Coordenadas que se grafican" en
+  la sección de exportación arriba.
 
 ## Notas técnicas
 
@@ -263,6 +328,10 @@ QGIS 4.x.
   (`i18n.detectar_idioma_qgis`). Tampoco depende de QGIS para las
   traducciones en sí (solo la detección del idioma necesita `qgis.PyQt`),
   así que también se puede probar con Python estándar.
+- El archivo `vemos.py` contiene la corrección de época (modelos VEMOS),
+  también sin ninguna dependencia de QGIS, probado aparte con
+  `test_vemos.py` contra los cuatro archivos reales incluidos en
+  `vemos_data/`.
 
 ## Publicar en el repositorio oficial de QGIS (plugins.qgis.org)
 
@@ -292,7 +361,8 @@ pasos:
    exactamente `LICENSE` (sin extensión) en la carpeta del complemento. Ya
    se incluyó uno con la licencia GPLv3.
 5. **Volver a empaquetar** la carpeta `recalculo_rtk` en un `.zip` (con
-   `metadata.txt` y `LICENSE` ya actualizados, y sin la carpeta `.git`).
+   `metadata.txt` y `LICENSE` ya actualizados, sin la carpeta `.git` y
+   sin `test_core.py`/`test_vemos.py` — ver la nota siguiente).
 6. **Subir el complemento.** En <https://plugins.qgis.org/>, iniciar
    sesión con la cuenta OSGeo y usar la opción "Upload a plugin" /
    "Share a plugin", cargando ese `.zip`.
@@ -303,10 +373,15 @@ pasos:
    hasta que la cuenta obtenga permiso de aprobación automática.
 
 Notas adicionales que pide el repositorio oficial: el paquete no debe
-superar 25 MB (este lo cumple de sobra), no debe incluir archivos
-generados ni carpetas ocultas como `.git` dentro del ZIP que se sube, y
-conviene revisar antes en <https://plugins.qgis.org/> que no exista ya un
-complemento con una función equivalente, para evitar duplicados.
+superar 25 MB (este lo cumple de sobra, incluyendo los ~360 KB de
+`vemos_data/`), no debe incluir archivos generados ni carpetas ocultas
+como `.git` dentro del ZIP que se sube, y conviene revisar antes en
+<https://plugins.qgis.org/> que no exista ya un complemento con una
+función equivalente, para evitar duplicados. `test_core.py` y
+`test_vemos.py` (suites de prueba de desarrollo) tampoco se incluyen en
+el ZIP publicado: no se ejecutan dentro de QGIS y sus `assert` de
+prueba hacían que el escaneo de seguridad (Bandit) de plugins.qgis.org
+marcara el complemento con falsos positivos (ver changelog 1.2.2).
 
 ## Autor
 

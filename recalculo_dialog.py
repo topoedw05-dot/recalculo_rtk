@@ -9,25 +9,28 @@ cálculo; la aritmética pura vive en core.py (sin dependencias de
 QGIS) para poder probarla de forma aislada.
 """
 
+import contextlib
 import datetime
 import os
 
-from qgis.PyQt.QtCore import Qt
+from qgis.PyQt.QtCore import Qt, QDate
 from qgis.PyQt.QtWidgets import (
     QApplication,
     QDialog,
     QVBoxLayout,
     QHBoxLayout,
+    QGridLayout,
     QFormLayout,
     QGroupBox,
     QLineEdit,
     QLabel,
     QPushButton,
+    QToolButton,
     QComboBox,
+    QDateEdit,
     QFileDialog,
     QCheckBox,
     QMessageBox,
-    QDialogButtonBox,
     QPlainTextEdit,
     QScrollArea,
     QFrame,
@@ -51,6 +54,7 @@ from qgis.gui import QgsProjectionSelectionWidget
 
 from . import core
 from . import i18n
+from . import vemos
 
 # Nota: estas dos constantes se mantienen por compatibilidad (por si algo
 # externo las importa), pero el texto real que ve el usuario ahora sale
@@ -65,9 +69,14 @@ PLACEHOLDER_COL_OPCIONAL = i18n.tr(i18n.IDIOMA_DEFECTO, "placeholder_col_opciona
 # el selector de CRS del diálogo.
 CRS_GEOGRAFICO_DEFECTO = "EPSG:4686"
 
+# Carpeta con los archivos VEMOS*.TXT incluidos en el complemento (ver
+# vemos_data/LEEME.txt para las citas de cada modelo), usados por la
+# corrección opcional de época.
+DIR_VEMOS_DATOS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vemos_data")
+
 # Debe mantenerse igual al valor "version" de metadata.txt; se usa para
 # identificar la versión del complemento en el reporte técnico opcional.
-VERSION_PLUGIN = "1.4.0"
+VERSION_PLUGIN = "1.5.5"
 
 
 def _valor_enum(clase, nombre, contenedor=None):
@@ -284,7 +293,7 @@ class RecalculoRTKDialog(QDialog):
         )
         self.setMinimumSize(420, 320)
 
-        ancho, alto = 620, 780
+        ancho, alto = 820, 700
         pantalla = QApplication.primaryScreen()
         if pantalla is not None:
             disponible = pantalla.availableGeometry()
@@ -320,12 +329,16 @@ class RecalculoRTKDialog(QDialog):
         contenido = QWidget()
         layout = QVBoxLayout(contenido)
         layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(8)
 
         intro = QLabel(self._tr("intro_text"))
         intro.setWordWrap(True)
         layout.addWidget(intro)
 
-        # --- Coordenadas de la base ---------------------------------
+        # --- Coordenadas de la base (fila superior en paralelo), con un
+        # icono de vector (➔) entre ambas tarjetas que deja claro
+        # visualmente que se trata de una traslación/desplazamiento de
+        # coordenadas de una base a la otra. --------------------------
         bases_layout = QHBoxLayout()
         self.grp_libre, self.ed_libre = self._build_coord_group(
             self._tr("grp_base_libre")
@@ -333,11 +346,31 @@ class RecalculoRTKDialog(QDialog):
         self.grp_ajustada, self.ed_ajustada = self._build_coord_group(
             self._tr("grp_base_ajustada")
         )
+        lbl_vector = QLabel("➔")
+        lbl_vector.setToolTip(self._tr("tooltip_vector"))
+        lbl_vector.setAlignment(_valor_enum(Qt, "AlignCenter", "AlignmentFlag"))
+        fuente_vector = lbl_vector.font()
+        fuente_vector.setPointSize(fuente_vector.pointSize() + 12)
+        fuente_vector.setBold(True)
+        lbl_vector.setFont(fuente_vector)
         bases_layout.addWidget(self.grp_libre)
+        bases_layout.addWidget(lbl_vector)
         bases_layout.addWidget(self.grp_ajustada)
         layout.addLayout(bases_layout)
 
-        # --- Archivo CSV ----------------------------------------------
+        # --- División central en dos columnas: Entrada (izquierda) y
+        # Salida/exportación (derecha), en vez de apilar todo uno debajo
+        # del otro. ------------------------------------------------------
+        columnas_layout = QHBoxLayout()
+        columnas_layout.setSpacing(14)
+
+        # ===== Columna izquierda: datos de entrada y sistemas =========
+        col_izq = QVBoxLayout()
+        col_izq.setSpacing(8)
+
+        lbl_col_izq = QLabel("<b>{}</b>".format(self._tr("lbl_columna_entrada")))
+        col_izq.addWidget(lbl_col_izq)
+
         grp_csv = QGroupBox(self._tr("grp_csv"))
         csv_layout = QVBoxLayout(grp_csv)
 
@@ -350,21 +383,33 @@ class RecalculoRTKDialog(QDialog):
         fila_archivo.addWidget(btn_examinar)
         csv_layout.addLayout(fila_archivo)
 
-        cols_form = QFormLayout()
+        # Los 4 selectores de columna se acomodan en una cuadrícula
+        # compacta de 2x2 ([ID] [Z] / [X] [Y]) en vez de 4 filas
+        # apiladas, para recortar el espacio vertical.
+        cols_grid = QGridLayout()
+        cols_grid.setHorizontalSpacing(6)
+        cols_grid.setVerticalSpacing(4)
         self.cb_col_id = QComboBox()
         self.cb_col_x = QComboBox()
         self.cb_col_y = QComboBox()
         self.cb_col_z = QComboBox()
-        cols_form.addRow(self._tr("lbl_col_id"), self.cb_col_id)
-        cols_form.addRow(self._tr("lbl_col_x"), self.cb_col_x)
-        cols_form.addRow(self._tr("lbl_col_y"), self.cb_col_y)
-        cols_form.addRow(self._tr("lbl_col_z"), self.cb_col_z)
-        csv_layout.addLayout(cols_form)
+        cols_grid.addWidget(QLabel(self._tr("lbl_col_id_corta")), 0, 0)
+        cols_grid.addWidget(self.cb_col_id, 0, 1)
+        cols_grid.addWidget(QLabel(self._tr("lbl_col_z_corta")), 0, 2)
+        cols_grid.addWidget(self.cb_col_z, 0, 3)
+        cols_grid.addWidget(QLabel(self._tr("lbl_col_x_corta")), 1, 0)
+        cols_grid.addWidget(self.cb_col_x, 1, 1)
+        cols_grid.addWidget(QLabel(self._tr("lbl_col_y_corta")), 1, 2)
+        cols_grid.addWidget(self.cb_col_y, 1, 3)
+        cols_grid.setColumnStretch(1, 1)
+        cols_grid.setColumnStretch(3, 1)
+        csv_layout.addLayout(cols_grid)
         self._set_column_combos_enabled(False)
 
-        layout.addWidget(grp_csv)
+        col_izq.addWidget(grp_csv)
 
-        # --- Sistemas de referencia -------------------------------------
+        # --- Sistemas de referencia (debajo del CSV, mismo bloque de
+        # entrada), con etiquetas cortas. ------------------------------
         grp_crs = QGroupBox(self._tr("grp_crs"))
         crs_layout = QFormLayout(grp_crs)
 
@@ -378,11 +423,20 @@ class RecalculoRTKDialog(QDialog):
         self.crs_geo_widget.setCrs(QgsCoordinateReferenceSystem(CRS_GEOGRAFICO_DEFECTO))
         crs_layout.addRow(self._tr("lbl_crs_geo"), self.crs_geo_widget)
 
-        layout.addWidget(grp_crs)
+        col_izq.addWidget(grp_crs)
+        col_izq.addStretch(1)
 
-        # --- Salida -------------------------------------------------------
+        # ===== Columna derecha: exportación y reporte técnico ===========
+        col_der = QVBoxLayout()
+        col_der.setSpacing(8)
+
+        lbl_col_der = QLabel("<b>{}</b>".format(self._tr("lbl_columna_salida")))
+        col_der.addWidget(lbl_col_der)
+
+        # --- Resultado principal ---------------------------------------
         grp_salida = QGroupBox(self._tr("grp_resultado"))
         salida_layout = QVBoxLayout(grp_salida)
+        salida_layout.setSpacing(4)
 
         fila_salida = QHBoxLayout()
         self.ed_out_path = QLineEdit()
@@ -399,28 +453,52 @@ class RecalculoRTKDialog(QDialog):
         salida_layout.addWidget(self.chk_capa_ajustada)
         salida_layout.addWidget(self.chk_capa_libre)
 
-        layout.addWidget(grp_salida)
+        col_der.addWidget(grp_salida)
 
-        # --- Formatos adicionales de exportación (de los puntos ajustados) ---
+        # --- Exportar a otros formatos: chips SHP/DXF + fila de ruta
+        # dinámica que solo aparece para los formatos marcados, en vez
+        # de dos filas idénticas siempre visibles. La advertencia sobre
+        # los atributos de DXF queda detrás de un botón de ayuda "(?)".
         grp_export = QGroupBox(self._tr("grp_export_adicional"))
         export_layout = QVBoxLayout(grp_export)
+        export_layout.setSpacing(4)
 
-        self.chk_export_shp, self.ed_shp_path, btn_shp = self._build_export_row(
-            export_layout, self._tr("chk_export_shp"), self._on_examinar_shp
+        fila_chips = QHBoxLayout()
+        self.chk_export_shp = QCheckBox(self._tr("chip_shp"))
+        self.chk_export_dxf = QCheckBox(self._tr("chip_dxf"))
+        btn_ayuda_dxf = self._build_boton_ayuda(self._tr("nota_dxf"))
+        fila_chips.addWidget(self.chk_export_shp)
+        fila_chips.addWidget(self.chk_export_dxf)
+        fila_chips.addWidget(btn_ayuda_dxf)
+        fila_chips.addStretch(1)
+        export_layout.addLayout(fila_chips)
+
+        self.ed_shp_path, self.widget_fila_shp = self._build_fila_ruta_dinamica(
+            export_layout, self._on_examinar_shp
         )
-        self.chk_export_dxf, self.ed_dxf_path, btn_dxf = self._build_export_row(
-            export_layout, self._tr("chk_export_dxf"), self._on_examinar_dxf
+        self.ed_dxf_path, self.widget_fila_dxf = self._build_fila_ruta_dinamica(
+            export_layout, self._on_examinar_dxf
         )
+        self.chk_export_shp.toggled.connect(self.widget_fila_shp.setVisible)
+        self.chk_export_dxf.toggled.connect(self.widget_fila_dxf.setVisible)
 
-        nota_dxf = QLabel(self._tr("nota_dxf"))
-        nota_dxf.setWordWrap(True)
-        export_layout.addWidget(nota_dxf)
+        col_der.addWidget(grp_export)
 
-        layout.addWidget(grp_export)
-
-        # --- Reporte técnico (opcional) --------------------------------
-        grp_reporte = QGroupBox(self._tr("grp_reporte"))
+        # --- Reporte técnico (opcional): un único checkbox principal
+        # que, al marcarlo, despliega los campos de Proyecto/Responsable
+        # y la ruta; el párrafo explicativo queda detrás de un botón de
+        # ayuda "(?)" en vez de un texto siempre visible. ----------------
+        grp_reporte = QGroupBox()
         reporte_layout = QVBoxLayout(grp_reporte)
+        reporte_layout.setSpacing(4)
+
+        self.chk_reporte = QCheckBox(self._tr("chk_reporte"))
+        reporte_layout.addWidget(self.chk_reporte)
+
+        self.widget_reporte_detalle = QWidget()
+        detalle_layout = QVBoxLayout(self.widget_reporte_detalle)
+        detalle_layout.setContentsMargins(0, 2, 0, 0)
+        detalle_layout.setSpacing(4)
 
         datos_form = QFormLayout()
         self.ed_reporte_proyecto = QLineEdit()
@@ -429,17 +507,93 @@ class RecalculoRTKDialog(QDialog):
         self.ed_reporte_responsable.setPlaceholderText(self._tr("placeholder_responsable"))
         datos_form.addRow(self._tr("lbl_proyecto"), self.ed_reporte_proyecto)
         datos_form.addRow(self._tr("lbl_responsable"), self.ed_reporte_responsable)
-        reporte_layout.addLayout(datos_form)
+        detalle_layout.addLayout(datos_form)
 
-        self.chk_reporte, self.ed_reporte_path, btn_reporte = self._build_export_row(
-            reporte_layout, self._tr("chk_reporte"), self._on_examinar_reporte
-        )
+        fila_reporte = QHBoxLayout()
+        self.ed_reporte_path = QLineEdit()
+        btn_reporte = QPushButton(self._tr("btn_guardar_como"))
+        btn_reporte.clicked.connect(self._on_examinar_reporte)
+        btn_ayuda_reporte = self._build_boton_ayuda(self._tr("nota_reporte"))
+        fila_reporte.addWidget(self.ed_reporte_path)
+        fila_reporte.addWidget(btn_reporte)
+        fila_reporte.addWidget(btn_ayuda_reporte)
+        detalle_layout.addLayout(fila_reporte)
 
-        nota_reporte = QLabel(self._tr("nota_reporte"))
-        nota_reporte.setWordWrap(True)
-        reporte_layout.addWidget(nota_reporte)
+        self.widget_reporte_detalle.setVisible(False)
+        self.chk_reporte.toggled.connect(self.widget_reporte_detalle.setVisible)
+        reporte_layout.addWidget(self.widget_reporte_detalle)
 
-        layout.addWidget(grp_reporte)
+        col_der.addWidget(grp_reporte)
+
+        # --- Corrección de época (VEMOS, opcional): lleva las
+        # coordenadas geográficas ajustadas de su época de observación a
+        # una época destino (p. ej. MAGNA-SIRGAS 2018.0) usando los
+        # modelos de velocidades VEMOS de SIRGAS/DGFI-TUM. Desactivada
+        # por defecto; un único checkbox despliega el resto, igual que
+        # el bloque de reporte técnico. ------------------------------
+        grp_epoca = QGroupBox()
+        epoca_layout = QVBoxLayout(grp_epoca)
+        epoca_layout.setSpacing(4)
+
+        fila_chk_epoca = QHBoxLayout()
+        self.chk_epoca = QCheckBox(self._tr("chk_epoca_vemos"))
+        btn_ayuda_epoca = self._build_boton_ayuda(self._tr("nota_epoca_vemos"))
+        fila_chk_epoca.addWidget(self.chk_epoca)
+        fila_chk_epoca.addWidget(btn_ayuda_epoca)
+        fila_chk_epoca.addStretch(1)
+        epoca_layout.addLayout(fila_chk_epoca)
+
+        self.widget_epoca_detalle = QWidget()
+        epoca_detalle_layout = QVBoxLayout(self.widget_epoca_detalle)
+        epoca_detalle_layout.setContentsMargins(0, 2, 0, 0)
+        epoca_detalle_layout.setSpacing(4)
+
+        epoca_form = QFormLayout()
+        self.cb_modelo_vemos = QComboBox()
+        for _clave_modelo in vemos.ORDEN_MODELOS:
+            _info_modelo = vemos.MODELOS[_clave_modelo]
+            self.cb_modelo_vemos.addItem("{} ({})".format(_clave_modelo, _info_modelo["marco"]), _clave_modelo)
+        epoca_form.addRow(self._tr("lbl_modelo_vemos"), self.cb_modelo_vemos)
+
+        self.ed_epoca_destino = QLineEdit(self._tr("valor_epoca_magna_sirgas"))
+        epoca_form.addRow(self._tr("lbl_epoca_destino"), self.ed_epoca_destino)
+
+        fila_epoca_obs = QHBoxLayout()
+        self.fecha_epoca_obs = QDateEdit()
+        self.fecha_epoca_obs.setCalendarPopup(True)
+        self.fecha_epoca_obs.setDisplayFormat("yyyy-MM-dd")
+        self.fecha_epoca_obs.setDate(QDate.currentDate())
+        self.lbl_epoca_obs_decimal = QLabel()
+        self.lbl_epoca_obs_decimal.setStyleSheet("QLabel { color: #5a6472; font-size: 11px; }")
+        fila_epoca_obs.addWidget(self.fecha_epoca_obs)
+        fila_epoca_obs.addWidget(self.lbl_epoca_obs_decimal)
+        fila_epoca_obs.addStretch(1)
+        self.fecha_epoca_obs.dateChanged.connect(self._actualizar_epoca_obs_decimal)
+        epoca_form.addRow(self._tr("lbl_epoca_obs"), fila_epoca_obs)
+        epoca_detalle_layout.addLayout(epoca_form)
+
+        self.lbl_cobertura_vemos = QLabel()
+        self.lbl_cobertura_vemos.setStyleSheet("QLabel { color: #5a6472; font-size: 11px; }")
+        self.lbl_cobertura_vemos.setWordWrap(True)
+        epoca_detalle_layout.addWidget(self.lbl_cobertura_vemos)
+
+        self.widget_epoca_detalle.setVisible(False)
+        self.chk_epoca.toggled.connect(self.widget_epoca_detalle.setVisible)
+        epoca_layout.addWidget(self.widget_epoca_detalle)
+
+        # Caché de grillas VEMOS ya leídas (clave de modelo) para no
+        # releer el archivo en cada punto ni en cada cambio del combo.
+        self._vemos_grids_cache = {}
+        self.cb_modelo_vemos.currentIndexChanged.connect(self._actualizar_cobertura_vemos)
+        self._actualizar_cobertura_vemos()
+        self._actualizar_epoca_obs_decimal()
+
+        col_der.addWidget(grp_epoca)
+        col_der.addStretch(1)
+
+        columnas_layout.addLayout(col_izq, 1)
+        columnas_layout.addLayout(col_der, 1)
+        layout.addLayout(columnas_layout)
         layout.addStretch(1)
 
         # El contenido configurable queda dentro de la barra de
@@ -451,23 +605,51 @@ class RecalculoRTKDialog(QDialog):
 
         pie = QVBoxLayout()
         pie.setContentsMargins(12, 6, 12, 12)
+        pie.setSpacing(4)
 
-        # --- Log de estado -------------------------------------------
+        # --- Log de estado: colapsado por defecto para no ocupar
+        # espacio; se expande solo (o con un clic) cuando hace falta
+        # ver el resultado del proceso. --------------------------------
+        fila_log = QHBoxLayout()
+        self.btn_toggle_log = QToolButton()
+        self.btn_toggle_log.setCheckable(True)
+        self.btn_toggle_log.setChecked(False)
+        self.btn_toggle_log.setToolButtonStyle(_valor_enum(Qt, "ToolButtonTextBesideIcon", "ToolButtonStyle"))
+        self.btn_toggle_log.setStyleSheet("QToolButton { border: none; font-weight: bold; }")
+        self.btn_toggle_log.toggled.connect(self._on_toggle_log)
+        fila_log.addWidget(self.btn_toggle_log)
+        fila_log.addStretch(1)
+        pie.addLayout(fila_log)
+
         self.txt_log = QPlainTextEdit()
         self.txt_log.setReadOnly(True)
         self.txt_log.setMaximumHeight(110)
         self.txt_log.setPlaceholderText(self._tr("placeholder_log"))
+        self.txt_log.setVisible(False)
         pie.addWidget(self.txt_log)
+        self._actualizar_texto_toggle_log()
 
-        # --- Botones ----------------------------------------------------
-        botones = QDialogButtonBox()
-        self.btn_ejecutar = QPushButton(self._tr("btn_calcular"))
-        self.btn_ejecutar.clicked.connect(self._on_ejecutar)
-        botones.addButton(self.btn_ejecutar, _valor_enum(QDialogButtonBox, "ActionRole", "ButtonRole"))
+        # --- Botones: "Calcular y exportar" queda destacado (color
+        # verde principal) en la esquina inferior derecha, junto al
+        # botón secundario "Cerrar". -------------------------------------
+        botones = QHBoxLayout()
+        botones.addStretch(1)
         btn_cerrar = QPushButton(self._tr("btn_cerrar"))
         btn_cerrar.clicked.connect(self.close)
-        botones.addButton(btn_cerrar, _valor_enum(QDialogButtonBox, "RejectRole", "ButtonRole"))
-        pie.addWidget(botones)
+        self.btn_ejecutar = QPushButton(self._tr("btn_calcular"))
+        self.btn_ejecutar.clicked.connect(self._on_ejecutar)
+        self.btn_ejecutar.setDefault(True)
+        self.btn_ejecutar.setStyleSheet(
+            "QPushButton {"
+            "  background-color: #2e7d32; color: white; font-weight: bold;"
+            "  padding: 6px 18px; border-radius: 4px; border: none;"
+            "}"
+            "QPushButton:hover { background-color: #388e3c; }"
+            "QPushButton:pressed { background-color: #1b5e20; }"
+        )
+        botones.addWidget(btn_cerrar)
+        botones.addWidget(self.btn_ejecutar)
+        pie.addLayout(botones)
 
         raiz.addLayout(pie)
 
@@ -487,31 +669,64 @@ class RecalculoRTKDialog(QDialog):
             (ed_x, self._tr("lbl_x")), (ed_y, self._tr("lbl_y")), (ed_z, self._tr("lbl_z"))
         ):
             ed.setPlaceholderText(self._tr("placeholder_num"))
+            # Ancho acotado a un tamaño estándar: las tarjetas de base no
+            # necesitan estirarse tanto como el resto del diálogo.
+            ed.setMaximumWidth(130)
             form.addRow(etiqueta, ed)
 
         return grupo, {"x": ed_x, "y": ed_y, "z": ed_z}
 
-    def _build_export_row(self, layout_padre, texto_checkbox, manejador_examinar):
-        """Crea una fila "checkbox + ruta + botón Examinar" para un
-        formato de exportación adicional (Shapefile, DXF, ...), y la
-        agrega a ``layout_padre``. Devuelve (checkbox, campo_ruta,
-        boton)."""
-        checkbox = QCheckBox(texto_checkbox)
-        fila = QHBoxLayout()
+    def _build_boton_ayuda(self, texto_tooltip):
+        """Botón de ayuda contextual "(?)": en vez de un párrafo de nota
+        siempre visible, muestra el texto explicativo en un cuadro de
+        mensaje al hacer clic, para no saturar la vista. También deja
+        el texto como tooltip al pasar el cursor, pero el clic es la
+        forma confiable de verlo completo (el tooltip no siempre
+        aparece — depende del tema, del tiempo que el cursor se quede
+        quieto, o de si se usa con pantalla táctil)."""
+        boton = QToolButton()
+        boton.setText("?")
+        boton.setToolTip(texto_tooltip)
+        boton.setCursor(_valor_enum(Qt, "PointingHandCursor", "CursorShape"))
+        boton.setStyleSheet(
+            "QToolButton {"
+            "  border: 1px solid #888; border-radius: 9px;"
+            "  min-width: 18px; max-width: 18px;"
+            "  min-height: 18px; max-height: 18px;"
+            "  font-weight: bold;"
+            "}"
+        )
+        boton.clicked.connect(
+            lambda: QMessageBox.information(self, self._tr("dlg_ayuda_titulo"), texto_tooltip)
+        )
+        return boton
+
+    def _build_fila_ruta_dinamica(self, layout_padre, manejador_examinar):
+        """Crea una fila "ruta + botón Guardar como..." para un formato
+        de exportación adicional (Shapefile, DXF, ...), oculta por
+        defecto: solo aparece cuando el checkbox correspondiente del
+        chip (ver _build_ui) se marca, en vez de mostrar siempre filas
+        idénticas para cada formato. Devuelve (campo_ruta, widget_fila)
+        para que el llamador conecte la visibilidad al checkbox."""
+        widget_fila = QWidget()
+        fila = QHBoxLayout(widget_fila)
+        fila.setContentsMargins(0, 0, 0, 0)
         campo_ruta = QLineEdit()
-        campo_ruta.setEnabled(False)
         boton = QPushButton(self._tr("btn_guardar_como"))
-        boton.setEnabled(False)
         boton.clicked.connect(manejador_examinar)
         fila.addWidget(campo_ruta)
         fila.addWidget(boton)
+        widget_fila.setVisible(False)
+        layout_padre.addWidget(widget_fila)
+        return campo_ruta, widget_fila
 
-        checkbox.toggled.connect(campo_ruta.setEnabled)
-        checkbox.toggled.connect(boton.setEnabled)
+    def _on_toggle_log(self, expandido):
+        self.txt_log.setVisible(expandido)
+        self._actualizar_texto_toggle_log()
 
-        layout_padre.addWidget(checkbox)
-        layout_padre.addLayout(fila)
-        return checkbox, campo_ruta, boton
+    def _actualizar_texto_toggle_log(self):
+        flecha = "▾" if self.btn_toggle_log.isChecked() else "▸"
+        self.btn_toggle_log.setText("{} {}".format(flecha, self._tr("lbl_registro")))
 
     def _set_column_combos_enabled(self, enabled):
         for cb in (self.cb_col_id, self.cb_col_x, self.cb_col_y, self.cb_col_z):
@@ -642,6 +857,11 @@ class RecalculoRTKDialog(QDialog):
             self.ed_reporte_path.setText(path)
 
     def _log(self, mensaje, nivel="info"):
+        # El registro se expande solo en cuanto hay algo que mostrar,
+        # para que el usuario no tenga que acordarse de desplegarlo a
+        # mano justo cuando más importa ver el resultado del proceso.
+        if not self.btn_toggle_log.isChecked():
+            self.btn_toggle_log.setChecked(True)
         self.txt_log.appendPlainText(mensaje)
 
     # ------------------------------------------------------------------
@@ -668,6 +888,44 @@ class RecalculoRTKDialog(QDialog):
         if opcional:
             return None if idx <= 0 else idx - 1
         return None if idx <= 0 else idx - 1
+
+    # ------------------------------------------------------------------
+    # Corrección de época (VEMOS)
+    # ------------------------------------------------------------------
+    def _resolver_grid_vemos(self, clave_modelo):
+        """Retorna la grilla VEMOS (``vemos.VemosGrid``) para
+        ``clave_modelo``, leyéndola solo la primera vez (desde la
+        carpeta ``vemos_data/`` incluida con el complemento) y
+        reutilizando el resultado en llamadas posteriores (hay una
+        por cada punto del CSV durante el cálculo)."""
+        if clave_modelo not in self._vemos_grids_cache:
+            ruta = os.path.join(DIR_VEMOS_DATOS, vemos.MODELOS[clave_modelo]["archivo"])
+            self._vemos_grids_cache[clave_modelo] = vemos.leer_vemos(ruta)
+        return self._vemos_grids_cache[clave_modelo]
+
+    def _actualizar_cobertura_vemos(self):
+        """Actualiza la etiqueta de cobertura real bajo el selector de
+        modelo VEMOS. No interrumpe al usuario con un cuadro de error
+        si el archivo no se puede leer todavía (p. ej. carpeta
+        vemos_data/ incompleta): el error real se muestra solo al
+        intentar calcular con la corrección activada."""
+        clave = self.cb_modelo_vemos.currentData()
+        if not clave:
+            return
+        texto = ""
+        with contextlib.suppress(OSError, ValueError):
+            grid = self._resolver_grid_vemos(clave)
+            texto = self._tr("lbl_cobertura_vemos", zona=vemos.texto_cobertura(grid), nodos=len(grid))
+        self.lbl_cobertura_vemos.setText(texto or self._tr("lbl_cobertura_vemos_no_disp"))
+
+    def _actualizar_epoca_obs_decimal(self):
+        """Actualiza la etiqueta que muestra el año decimal calculado
+        a partir de la fecha de observación elegida en el calendario
+        (``vemos.epoca_decimal``, mismo año + día del año que usa el
+        resto del módulo ``vemos``)."""
+        fecha = self.fecha_epoca_obs.date()
+        decimal = vemos.epoca_decimal(fecha.year(), fecha.dayOfYear())
+        self.lbl_epoca_obs_decimal.setText(self._tr("lbl_epoca_obs_decimal", valor="{:.3f}".format(decimal)))
 
     # ------------------------------------------------------------------
     # Ejecución del cálculo
@@ -728,6 +986,38 @@ class RecalculoRTKDialog(QDialog):
             QMessageBox.warning(self, self._tr("warn_crs_invalido_titulo"), self._tr("warn_crs_invalido_msg"))
             return
 
+        # --- Corrección de época (VEMOS), opcional: se valida todo antes
+        # de calcular para no procesar el CSV completo y fallar al final. --
+        aplicar_epoca = self.chk_epoca.isChecked()
+        clave_modelo_epoca = None
+        epoca_destino = None
+        epoca_obs = None
+        grid_epoca = None
+        if aplicar_epoca:
+            clave_modelo_epoca = self.cb_modelo_vemos.currentData()
+            try:
+                epoca_destino = core.parse_float(self.ed_epoca_destino.text())
+            except ValueError as exc:
+                QMessageBox.warning(
+                    self, self._tr("warn_epoca_invalida_titulo"), self._tr("warn_epoca_destino_invalida", error=exc)
+                )
+                return
+            fecha_epoca_obs = self.fecha_epoca_obs.date()
+            epoca_obs = vemos.epoca_decimal(fecha_epoca_obs.year(), fecha_epoca_obs.dayOfYear())
+            try:
+                grid_epoca = self._resolver_grid_vemos(clave_modelo_epoca)
+            except (OSError, ValueError) as exc:
+                QMessageBox.critical(
+                    self, self._tr("err_vemos_archivo_titulo"), self._tr("err_vemos_archivo_msg", error=exc)
+                )
+                return
+            if vemos.fuera_de_vigencia(clave_modelo_epoca, epoca_obs):
+                info_modelo_epoca = vemos.MODELOS[clave_modelo_epoca]
+                self._log(self._tr(
+                    "log_epoca_fuera_vigencia", modelo=clave_modelo_epoca,
+                    t_ini=info_modelo_epoca["t_ini"], t_fin=info_modelo_epoca["t_fin"],
+                ))
+
         dx, dy, dz = core.compute_delta(base_libre, base_ajustada)
         dz_texto = "{:.4f}".format(dz) if dz is not None else self._tr("log_dz_na")
         self._log(self._tr("log_vector_calculado", dx="{:.4f}".format(dx), dy="{:.4f}".format(dy), dz=dz_texto))
@@ -741,13 +1031,33 @@ class RecalculoRTKDialog(QDialog):
             return
 
         transform = QgsCoordinateTransform(crs_plano, crs_geo, QgsProject.instance())
+        transform_inv = QgsCoordinateTransform(crs_geo, crs_plano, QgsProject.instance()) if aplicar_epoca else None
 
         nuevo_header = list(self._csv_header) + [
             "X_ajustada", "Y_ajustada", "Z_ajustada", "Lon_ajustada", "Lat_ajustada"
         ]
+        if aplicar_epoca:
+            nuevo_header += [
+                "X_epoca", "Y_epoca", "Z_epoca", "Lon_epoca", "Lat_epoca",
+                "Desplazamiento_epoca_m", "Modelo_epoca", "Epoca_obs", "Epoca_destino",
+            ]
         nuevas_filas = []
         puntos_reporte = []
+        # Coordenadas planas "finales" que se usan para la GEOMETRÍA de
+        # los puntos exportados (capa del proyecto, Shapefile y DXF): si
+        # se activó la corrección de época y el punto quedó corregido,
+        # son las coordenadas ya corregidas a la época destino; si no se
+        # activó la corrección, o el punto cayó fuera de la cobertura
+        # real del modelo VEMOS elegido, son las coordenadas ajustadas
+        # por la base RTK sin corrección de época (igual que siempre).
+        # Los ATRIBUTOS/columnas del CSV y del Shapefile (X_ajustada,
+        # Y_ajustada, Z_ajustada, X_epoca, ...) no cambian: siguen
+        # mostrando ambos valores por separado, esto solo decide dónde
+        # queda plantado el punto.
+        coords_finales = []
         errores_transform = 0
+        puntos_corregidos_epoca = 0
+        puntos_fuera_cobertura_epoca = 0
         for r in resultados:
             try:
                 punto_geo = transform.transform(QgsPointXY(r["x_adj"], r["y_adj"]))
@@ -763,17 +1073,89 @@ class RecalculoRTKDialog(QDialog):
                 "{:.9f}".format(lon) if lon != "" else "",
                 "{:.9f}".format(lat) if lat != "" else "",
             ]
+
+            resultado_epoca = None
+            x_epoca = y_epoca = None
+            if aplicar_epoca:
+                if lon == "" or lat == "":
+                    # Ya es un error de transformación; no tiene sentido
+                    # intentar la corrección de época sobre coordenadas
+                    # geográficas que no se pudieron calcular.
+                    fila_salida += [
+                        "", "", "", "", "", "", clave_modelo_epoca,
+                        "{:.3f}".format(epoca_obs), "{:.3f}".format(epoca_destino),
+                    ]
+                else:
+                    h_para_epoca = r["z_adj"] if r["z_adj"] is not None else 0.0
+                    resultado_epoca = vemos.cambiar_epoca(grid_epoca, lat, lon, h_para_epoca, epoca_obs, epoca_destino)
+                    if resultado_epoca is None:
+                        puntos_fuera_cobertura_epoca += 1
+                        fila_salida += [
+                            "", "", "", "", "", "", clave_modelo_epoca,
+                            "{:.3f}".format(epoca_obs), "{:.3f}".format(epoca_destino),
+                        ]
+                    else:
+                        puntos_corregidos_epoca += 1
+                        try:
+                            punto_plano_epoca = transform_inv.transform(
+                                QgsPointXY(resultado_epoca.lon, resultado_epoca.lat)
+                            )
+                            x_epoca, y_epoca = punto_plano_epoca.x(), punto_plano_epoca.y()
+                        except Exception:
+                            x_epoca, y_epoca = None, None
+                        fila_salida += [
+                            "{:.4f}".format(x_epoca) if x_epoca is not None else "",
+                            "{:.4f}".format(y_epoca) if y_epoca is not None else "",
+                            "{:.4f}".format(resultado_epoca.h) if r["z_adj"] is not None else "",
+                            "{:.9f}".format(resultado_epoca.lon),
+                            "{:.9f}".format(resultado_epoca.lat),
+                            "{:.4f}".format(resultado_epoca.desplazamiento_m),
+                            clave_modelo_epoca,
+                            "{:.3f}".format(epoca_obs),
+                            "{:.3f}".format(epoca_destino),
+                        ]
+
+            # x_epoca/y_epoca/resultado_epoca quedan en None si la
+            # corrección no se activó, el punto cayó fuera de la
+            # cobertura real del modelo, o no se pudo reproyectar de
+            # vuelta a coordenadas planas — en todos esos casos la
+            # geometría exportada usa la coordenada ajustada (sin
+            # corrección de época), igual que si la opción no existiera.
+            if aplicar_epoca and resultado_epoca is not None and x_epoca is not None and y_epoca is not None:
+                z_final = resultado_epoca.h if r["z_adj"] is not None else None
+                coords_finales.append((x_epoca, y_epoca, z_final))
+            else:
+                coords_finales.append((r["x_adj"], r["y_adj"], r["z_adj"]))
+
             nuevas_filas.append(fila_salida)
 
             if generar_reporte:
                 valor_id = r["original"][idx_id] if (idx_id is not None and idx_id < len(r["original"])) else None
-                puntos_reporte.append({
+                punto_reporte = {
                     "etiqueta": core.etiqueta_punto(valor_id, r["fila"]),
                     "x": r["x"], "y": r["y"], "z": r["z"],
                     "x_adj": r["x_adj"], "y_adj": r["y_adj"], "z_adj": r["z_adj"],
                     "lon": lon if lon != "" else None,
                     "lat": lat if lat != "" else None,
-                })
+                }
+                if aplicar_epoca:
+                    # Coordenadas ya corregidas por el modelo de velocidades
+                    # VEMOS (ver "_on_ejecutar" arriba); quedan en None si el
+                    # punto cayó fuera de la cobertura real del modelo o no
+                    # se pudo reproyectar — el reporte las muestra como
+                    # "N/A" en ese caso (ver core._tabla_epoca_html/
+                    # construir_reporte_html).
+                    punto_reporte["x_epoca"] = x_epoca
+                    punto_reporte["y_epoca"] = y_epoca
+                    punto_reporte["z_epoca"] = (
+                        resultado_epoca.h if (resultado_epoca is not None and r["z_adj"] is not None) else None
+                    )
+                    punto_reporte["lon_epoca"] = resultado_epoca.lon if resultado_epoca is not None else None
+                    punto_reporte["lat_epoca"] = resultado_epoca.lat if resultado_epoca is not None else None
+                    punto_reporte["desplazamiento_epoca_m"] = (
+                        resultado_epoca.desplazamiento_m if resultado_epoca is not None else None
+                    )
+                puntos_reporte.append(punto_reporte)
 
         try:
             core.write_csv_rows(out_path, nuevo_header, nuevas_filas)
@@ -790,6 +1172,13 @@ class RecalculoRTKDialog(QDialog):
                 self._log(self._tr("log_mas_errores", n=len(errores) - 10))
         if errores_transform:
             self._log(self._tr("log_errores_transform", n=errores_transform))
+        if aplicar_epoca:
+            self._log(self._tr(
+                "log_epoca_aplicada", modelo=clave_modelo_epoca,
+                corregidos=puntos_corregidos_epoca, fuera=puntos_fuera_cobertura_epoca,
+            ))
+            if puntos_fuera_cobertura_epoca:
+                self._log(self._tr("log_epoca_fuera_cobertura", zona=vemos.texto_cobertura(grid_epoca)))
         self._log(self._tr("log_archivo_generado", ruta=out_path))
 
         nombre_id = self._csv_header[idx_id] if idx_id is not None else None
@@ -807,6 +1196,13 @@ class RecalculoRTKDialog(QDialog):
                 z_field_idx=idx_z_ajustada,
                 id_field_name=nombre_id,
                 agregar_al_proyecto=self.chk_capa_ajustada.isChecked(),
+                # Geometría: coordenadas ya corregidas por época cuando el
+                # usuario activó esa opción (y el punto quedó dentro de la
+                # cobertura real del modelo); si no, las ajustadas por la
+                # base RTK, igual que siempre. Los atributos de la capa
+                # (incluidas las columnas "*_ajustada"/"*_epoca") no
+                # cambian, solo la ubicación del punto.
+                geom_coords=coords_finales,
             )
 
         if self.chk_capa_libre.isChecked():
@@ -829,7 +1225,7 @@ class RecalculoRTKDialog(QDialog):
                     self._log(self._tr("log_shp_error", msg=msg))
 
         if exportar_dxf:
-            capa_dxf = self._crear_capa_dxf(crs_plano, resultados, idx_id)
+            capa_dxf = self._crear_capa_dxf(crs_plano, resultados, idx_id, coords_finales)
             ok, msg = self._exportar_vector_archivo(capa_dxf, ruta_dxf, "DXF")
             if ok:
                 self._log(self._tr("log_dxf_generado", ruta=ruta_dxf))
@@ -864,6 +1260,17 @@ class RecalculoRTKDialog(QDialog):
                 # para la interfaz del complemento (ver __init__ / i18n.py).
                 "idioma": self.idioma,
             }
+            if aplicar_epoca:
+                info_modelo_epoca = vemos.MODELOS[clave_modelo_epoca]
+                info_reporte["epoca_info"] = {
+                    "modelo": clave_modelo_epoca,
+                    "marco": info_modelo_epoca["marco"],
+                    "epoca_destino": epoca_destino,
+                    "epoca_obs": epoca_obs,
+                    "cobertura": vemos.texto_cobertura(grid_epoca),
+                    "corregidos": puntos_corregidos_epoca,
+                    "fuera_cobertura": puntos_fuera_cobertura_epoca,
+                }
             html_reporte = core.construir_reporte_html(info_reporte)
             ok, msg = self._generar_reporte_html(html_reporte, ruta_reporte)
             if ok:
@@ -889,13 +1296,26 @@ class RecalculoRTKDialog(QDialog):
     # Creación de capas de puntos en el proyecto
     # ------------------------------------------------------------------
     def _crear_capa_puntos(self, nombre, crs, header, filas, x_field_idx, y_field_idx,
-                            z_field_idx=None, id_field_name=None, agregar_al_proyecto=True):
+                            z_field_idx=None, id_field_name=None, agregar_al_proyecto=True,
+                            geom_coords=None):
         """Crea una capa de puntos en memoria a partir de ``filas``.
 
         Si ``z_field_idx`` se indica y los valores de esa columna son
         numéricos, la geometría se crea en 3D (PointZ), útil tanto para
         visualizar la elevación en QGIS como para que quede disponible
         al exportar a Shapefile/DXF.
+
+        ``geom_coords``, si se indica, es una lista paralela a ``filas``
+        con una tupla ``(x, y, z_o_None)`` por fila que se usa para la
+        **geometría** del punto en vez de las columnas
+        ``x_field_idx``/``y_field_idx``/``z_field_idx`` de ``fila`` — los
+        **atributos** de la capa (incluidas esas mismas columnas, p. ej.
+        "X_ajustada") siguen saliendo de ``fila`` sin cambios, solo
+        cambia dónde queda plantado el punto. Se usa para que, con la
+        corrección de época (VEMOS) activada, los puntos de la capa
+        "ajustada" (y su exportación a Shapefile) queden ubicados en las
+        coordenadas ya corregidas a la época destino, sin tener que
+        duplicar columnas en el CSV de salida.
         """
         usar_z = z_field_idx is not None
         tipo_geom = "PointZ" if usar_z else "Point"
@@ -907,26 +1327,35 @@ class RecalculoRTKDialog(QDialog):
         capa.updateFields()
 
         features = []
-        for fila in filas:
-            try:
-                x = float(str(fila[x_field_idx]).replace(",", "."))
-                y = float(str(fila[y_field_idx]).replace(",", "."))
-            except (ValueError, IndexError):
-                continue
+        for i, fila in enumerate(filas):
+            if geom_coords is not None:
+                x, y, z = geom_coords[i]
+                if x is None or y is None:
+                    continue
+                if usar_z and z is None:
+                    z = 0.0
+            else:
+                try:
+                    x = float(str(fila[x_field_idx]).replace(",", "."))
+                    y = float(str(fila[y_field_idx]).replace(",", "."))
+                except (ValueError, IndexError):
+                    continue
+                z = 0.0
+                if usar_z:
+                    # La capa se declaró como PointZ: todas sus
+                    # geometrías deben serlo, así que si no hay Z válida
+                    # para esta fila se usa 0.0 en vez de mezclar
+                    # geometrías 2D y 3D en la misma capa (lo que algunos
+                    # proveedores rechazan).
+                    try:
+                        z_text = str(fila[z_field_idx]).strip()
+                        if z_text != "":
+                            z = float(z_text.replace(",", "."))
+                    except (ValueError, IndexError):
+                        z = 0.0
 
             feat = QgsFeature(capa.fields())
             if usar_z:
-                # La capa se declaró como PointZ: todas sus geometrías
-                # deben serlo, así que si no hay Z válida para esta fila
-                # se usa 0.0 en vez de mezclar geometrías 2D y 3D en la
-                # misma capa (lo que algunos proveedores rechazan).
-                z = 0.0
-                try:
-                    z_text = str(fila[z_field_idx]).strip()
-                    if z_text != "":
-                        z = float(z_text.replace(",", "."))
-                except (ValueError, IndexError):
-                    z = 0.0
                 feat.setGeometry(QgsGeometry(QgsPoint(x, y, z)))
             else:
                 feat.setGeometry(QgsGeometry.fromPointXY(QgsPointXY(x, y)))
@@ -944,27 +1373,50 @@ class RecalculoRTKDialog(QDialog):
             QgsProject.instance().addMapLayer(capa)
         return capa
 
-    def _crear_capa_dxf(self, crs, resultados, idx_id):
+    def _crear_capa_dxf(self, crs, resultados, idx_id, coords_finales=None):
         """Crea una capa liviana de puntos ajustados pensada para la
         exportación a DXF: solo geometría (con Z si está disponible) y
-        un campo "Text" con la etiqueta de cada punto (columna ID si
-        se seleccionó, o un consecutivo P1, P2, ...). El driver DXF de
-        OGR/GDAL dibuja automáticamente esa etiqueta junto al punto.
+        un campo especial "OGR_STYLE" con un "Feature Style String"
+        ``LABEL(t:"...")`` por punto (columna ID si se seleccionó, o
+        un consecutivo P1, P2, ...).
+
+        OGR/GDAL reservan el nombre de campo "OGR_STYLE": no se crea
+        como campo de atributo real, sino que su valor por entidad se
+        usa como el estilo de la entidad al escribir. El driver DXF
+        solo dibuja una etiqueta de texto (TEXT/MTEXT) junto al punto
+        cuando ese estilo empieza por "LABEL"; un campo de atributo
+        normal llamado "Text" NO lo lee el escritor DXF (solo lo usa
+        el *lector* al reconstruir entidades TEXT existentes), por lo
+        que esa variante dejaba los DXF exportados sin etiquetas.
+
+        ``coords_finales``, si se indica, es una lista paralela a
+        ``resultados`` con una tupla ``(x, y, z_o_None)`` por punto que
+        se usa para la geometría en vez de ``r["x_adj"]``/``r["y_adj"]``/
+        ``r["z_adj"]`` — con la corrección de época (VEMOS) activada, ya
+        trae las coordenadas corregidas a la época destino (o las
+        ajustadas sin corregir, si el punto cayó fuera de la cobertura
+        real del modelo elegido).
         """
         capa = QgsVectorLayer("PointZ?crs={}".format(crs.authid() or crs.toWkt()), "dxf_tmp", "memory")
         proveedor = capa.dataProvider()
         tipo_texto = _tipo_campo_texto()
-        proveedor.addAttributes([QgsField("Text", tipo_texto)])
+        proveedor.addAttributes([QgsField("OGR_STYLE", tipo_texto)])
         capa.updateFields()
 
         features = []
-        for r in resultados:
+        for i, r in enumerate(resultados):
             valor_id = r["original"][idx_id] if (idx_id is not None and idx_id < len(r["original"])) else None
             etiqueta = core.etiqueta_punto(valor_id, r["fila"])
-            z = r["z_adj"] if r["z_adj"] is not None else 0.0
+            estilo = core.estilo_etiqueta_dxf(etiqueta)
+            if coords_finales is not None:
+                x, y, z = coords_finales[i]
+            else:
+                x, y, z = r["x_adj"], r["y_adj"], r["z_adj"]
+            if z is None:
+                z = 0.0
             feat = QgsFeature(capa.fields())
-            feat.setGeometry(QgsGeometry(QgsPoint(r["x_adj"], r["y_adj"], z)))
-            feat.setAttributes([etiqueta])
+            feat.setGeometry(QgsGeometry(QgsPoint(x, y, z)))
+            feat.setAttributes([estilo])
             features.append(feat)
 
         proveedor.addFeatures(features)
