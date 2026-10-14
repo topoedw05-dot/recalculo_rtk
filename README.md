@@ -197,12 +197,12 @@ P3,999987.100,1000022.400,2601.120,PR-2
 - Ambos formatos son opcionales e independientes entre sí y del CSV de
   salida, que siempre se genera.
 - **Coordenadas que se grafican:** si activó la corrección opcional de
-  **época (VEMOS)** (ver más abajo), los puntos quedan ubicados en sus
-  coordenadas **ya corregidas** a la época destino — tanto en la capa
-  "Puntos ajustados" del proyecto como en el Shapefile y el DXF
+  **época (VEMOS o VEL-Ar)** (ver más abajo), los puntos quedan ubicados
+  en sus coordenadas **ya corregidas** a la época destino — tanto en la
+  capa "Puntos ajustados" del proyecto como en el Shapefile y el DXF
   exportados. Un punto que cae fuera de la cobertura real del modelo
-  VEMOS elegido (poco frecuente, se avisa en el registro) se grafica con
-  su coordenada ajustada **sin** corregir, igual que si la corrección no
+  elegido (poco frecuente, se avisa en el registro) se grafica con su
+  coordenada ajustada **sin** corregir, igual que si la corrección no
   estuviera activada. Si no activó la corrección de época, los puntos
   siempre se grafican con su coordenada ajustada por la base RTK, sin
   cambios. Esto solo afecta a la **geometría**: los atributos del
@@ -237,12 +237,12 @@ también puede imprimirse a PDF desde el navegador si se necesita un PDF:
 - Listado completo de los puntos recalculados, con sus coordenadas
   originales y ajustadas con 3 decimales, y las coordenadas geográficas
   en formato grados-minutos-segundos (5 decimales en los segundos). Si se
-  activó la corrección de época (VEMOS), el listado agrega además, por
-  cada punto, sus coordenadas **ya corregidas por el modelo de
-  velocidades** (X/Y/Z época, longitud/latitud época y el desplazamiento
-  en metros); un punto fuera de la cobertura real del modelo elegido
-  queda como "N/A" en esas columnas, igual que queda vacío en el CSV de
-  salida.
+  activó la corrección de época (VEMOS o VEL-Ar), el listado agrega
+  además, por cada punto, sus coordenadas **ya corregidas por el modelo
+  de velocidades** (X/Y/Z época, longitud/latitud época y el
+  desplazamiento en metros); un punto fuera de la cobertura real del
+  modelo elegido queda como "N/A" en esas columnas, igual que queda
+  vacío en el CSV de salida.
 
 El diseño usa tarjetas para los sistemas de referencia, títulos
 centrados y en mayúscula, y una tabla de puntos con desplazamiento
@@ -255,44 +255,73 @@ sin depender de ninguna librería externa que haya que instalar aparte
 dentro del Python de QGIS, así que funciona igual en QGIS 3.16+ y en
 QGIS 4.x.
 
-## Corrección de época (VEMOS, opcional)
+## Corrección de época (VEMOS / VEL-Ar, opcional)
 
 El complemento puede además llevar las coordenadas geográficas ya
 ajustadas (traducidas) desde su **época de observación** hasta una
-**época destino** — por ejemplo MAGNA-SIRGAS (ITRF2014, época 2018.0,
-Resolución IGAC 715 de 2018) — usando los modelos de velocidades
-**VEMOS** del Centro de Análisis SIRGAS (DGFI-TUM): VEMOS2022,
-VEMOS2017, VEMOS2015 y VEMOS2009. Es un paso **opcional** (casilla sin
-marcar por defecto, igual que el reporte técnico) y pensado para el
-caso en que la base ajustada venga de un postproceso estático en
-PPP/RTX referido a un marco ITRF en la época de la observación, no en
-la época oficial del marco. Si la base ajustada ya está en MAGNA-SIRGAS
-2018.0 (el caso más común en Colombia), este paso no hace falta.
+**época destino**, usando modelos de velocidades. Es un paso
+**opcional** (casilla sin marcar por defecto, igual que el reporte
+técnico) y pensado para el caso en que la base ajustada venga de un
+postproceso estático en PPP/RTX referido a un marco ITRF en la época
+de la observación, no en la época oficial del marco. Si la base
+ajustada ya está en la época oficial del marco que corresponda, este
+paso no hace falta. Hay dos familias de modelos en la misma lista
+desplegable:
+
+- **VEMOS** (Centro de Análisis SIRGAS/DGFI-TUM): VEMOS2022, VEMOS2017,
+  VEMOS2015 y VEMOS2009 — para Colombia y el resto de Latinoamérica.
+  Época destino por defecto: MAGNA-SIRGAS (ITRF2014, época 2018.0,
+  Resolución IGAC 715 de 2018).
+- **VEL-Ar v2.0** (Instituto Geográfico Nacional de Argentina, IGN) —
+  para Argentina. Marco oficial **POSGAR07**, época destino **2006.632**
+  (no 2018.0). Al elegirlo, el campo de época destino salta
+  automáticamente a 2006.632 si seguía en el valor por defecto de
+  VEMOS, y viceversa al volver a un modelo VEMOS.
 
 Qué hace y qué NO hace:
 
-- Cambia **solo la época** de la coordenada dentro del **mismo marco de
-  referencia**: `X(época_destino) = X(época_obs) + V·(época_destino −
-  época_obs)`, en coordenadas geocéntricas. No cambia el marco ITRF, no
-  recalcula la altura por geoide, y no incluye saltos cosísmicos
-  (desplazamientos abruptos por sismos).
-- Los cuatro modelos se incluyen con el complemento (carpeta
-  `vemos_data/`, ver `vemos_data/LEEME.txt` para las citas de los
-  autores), así que funciona sin conexión a internet.
+- Ambos modelos cambian **solo la época** de la coordenada:
+  `X(época_destino) = X(época_obs) + V·(época_destino − época_obs)`, en
+  coordenadas geocéntricas, dentro del marco del modelo elegido.
+  **VEMOS** no cambia el marco de referencia (ITRF), no recalcula la
+  altura por geoide y **no incluye saltos cosísmicos** (desplazamientos
+  abruptos por sismos). **VEL-Ar sí los incluye**: además de la
+  velocidad intersísmica lineal, suma el salto cosísmico y la
+  relajación postsísmica logarítmica de los terremotos de **Maule**
+  (2010.159, Mw 8.8) e **Illapel** (2015.710, Mw 8.3) — por eso, en la
+  zona andina argentina (Mendoza, San Juan, Neuquén, La Pampa, Río
+  Negro...), usar VEMOS cuando el intervalo de época cruza alguna de
+  esas fechas puede dar un error de 20 cm o más; el complemento
+  detecta ese caso y lo avisa en el registro recomendando VEL-Ar.
+  VEL-Ar sí aplica además una transformación de Helmert (7 parámetros)
+  entre POSGAR07 y POSGAR07b cuando corresponde: si la época destino es
+  la oficial (2006.632), el resultado final es POSGAR07; en cualquier
+  otro caso queda en POSGAR07b (muy cercano a IGS14). La altura no se
+  modifica salvo por ese Helmert (~1 cm), igual que el programa oficial.
+- Todos los modelos se incluyen con el complemento (carpetas
+  `vemos_data/` y `velar_data/`, ver sus respectivos `LEEME.txt` para
+  las citas de los autores), así que funciona sin conexión a internet.
+  **Licencia de VEL-Ar:** el paquete oficial del IGN no declara una
+  licencia de redistribución visible para sus grillas — si va a
+  publicar o compartir este complemento con `velar_data/` incluida,
+  confirme con el IGN las condiciones de redistribución (ver
+  `velar_data/LEEME.txt`).
 - La **época de observación** se elige con un selector de **fecha**
   (calendario): el complemento calcula solo el año decimal a partir de
   esa fecha (mismo cálculo día-del-año que usa `vemos.epoca_decimal`) y
   lo muestra junto al campo, por ejemplo "→ año decimal: 2020.499".
 - Ningún modelo cubre todo el continente (VEMOS2022, por ejemplo, llega
-  solo hasta 13°N: no cubre México ni el Caribe). Los puntos que caen
-  fuera de la zona de cobertura real del modelo elegido quedan **sin
-  corregir** y se avisa en el registro y en el reporte técnico.
+  solo hasta 13°N: no cubre México ni el Caribe; VEL-Ar solo cubre
+  Argentina continental, con un nodo lineal a ≤ 80 km). Los puntos que
+  caen fuera de la zona de cobertura real del modelo elegido quedan
+  **sin corregir** y se avisa en el registro y en el reporte técnico.
 - El CSV de salida mantiene las columnas `X/Y/Z_ajustada` y
   `Lon/Lat_ajustada` sin corrección de época (igual que sin esta
   opción) y agrega columnas nuevas con el resultado corregido:
   `X_epoca`, `Y_epoca`, `Z_epoca`, `Lon_epoca`, `Lat_epoca`,
-  `Desplazamiento_epoca_m`, `Modelo_epoca`, `Epoca_obs` y
-  `Epoca_destino`.
+  `Desplazamiento_epoca_m`, `Modelo_epoca`, `Marco_epoca`, `Epoca_obs` y
+  `Epoca_destino` (`Marco_epoca` indica si el resultado quedó en
+  POSGAR07, POSGAR07b, o el marco del modelo VEMOS elegido).
 - Si se genera el reporte técnico, se agrega una sección con el modelo
   usado, su marco de referencia, la época destino/observación, la zona
   de cobertura real y cuántos puntos se corrigieron.
@@ -300,6 +329,13 @@ Qué hace y qué NO hace:
   (capa del proyecto, Shapefile y DXF) queda en la coordenada ya
   corregida a la época destino — ver "Coordenadas que se grafican" en
   la sección de exportación arriba.
+- El algoritmo de VEL-Ar (`velar_ar.py`) es una reimplementación en
+  Python puro, validada contra el programa oficial del IGN
+  (120 puntos aleatorios + 708 puntos de control del territorio
+  continental argentino): diferencia máxima 1.33 cm, p99 0.77 cm,
+  mediana 0.023 cm; POSGAR07 dentro de 0.4 cm. Para trabajos que exijan
+  el resultado oficial exacto, confirme con la calculadora del IGN
+  (https://www.ign.gob.ar/NuestrasActividades/Geodesia/VEL-Ar/Calculadora).
 
 ## Notas técnicas
 
@@ -328,10 +364,14 @@ Qué hace y qué NO hace:
   (`i18n.detectar_idioma_qgis`). Tampoco depende de QGIS para las
   traducciones en sí (solo la detección del idioma necesita `qgis.PyQt`),
   así que también se puede probar con Python estándar.
-- El archivo `vemos.py` contiene la corrección de época (modelos VEMOS),
-  también sin ninguna dependencia de QGIS, probado aparte con
+- El archivo `vemos.py` contiene la corrección de época con los modelos
+  VEMOS, también sin ninguna dependencia de QGIS, probado aparte con
   `test_vemos.py` contra los cuatro archivos reales incluidos en
-  `vemos_data/`.
+  `vemos_data/`. El archivo `velar_ar.py` contiene la corrección de
+  época con el modelo VEL-Ar (Argentina), igual de independiente de
+  QGIS, probado con `test_velar.py` contra las 5 grillas reales
+  incluidas en `velar_data/` y los valores oficiales del manual/
+  calculadora del IGN.
 
 ## Publicar en el repositorio oficial de QGIS (plugins.qgis.org)
 

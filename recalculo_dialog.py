@@ -55,6 +55,7 @@ from qgis.gui import QgsProjectionSelectionWidget
 from . import core
 from . import i18n
 from . import vemos
+from . import velar_ar
 
 # Nota: estas dos constantes se mantienen por compatibilidad (por si algo
 # externo las importa), pero el texto real que ve el usuario ahora sale
@@ -74,9 +75,21 @@ CRS_GEOGRAFICO_DEFECTO = "EPSG:4686"
 # corrección opcional de época.
 DIR_VEMOS_DATOS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "vemos_data")
 
+# Carpeta con las 5 grillas vel-ar-*.txt del modelo VEL-Ar v2.0 (IGN
+# Argentina) incluidas con el complemento (ver velar_data/LEEME.txt para el
+# origen y el aviso de licencia de redistribución), usadas por la
+# corrección opcional de época cuando se elige ese modelo.
+DIR_VELAR_DATOS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "velar_data")
+
+# Valor que se guarda como "data" del combo de modelo de época cuando el
+# usuario elige VEL-Ar (en vez de una clave de vemos.MODELOS como
+# "VEMOS2022"): se usa en todo el archivo para distinguir qué algoritmo y
+# qué archivos de datos usar para la corrección de época.
+CLAVE_MODELO_VELAR = "VELAR"
+
 # Debe mantenerse igual al valor "version" de metadata.txt; se usa para
 # identificar la versión del complemento en el reporte técnico opcional.
-VERSION_PLUGIN = "1.5.5"
+VERSION_PLUGIN = "1.6.0"
 
 
 def _valor_enum(clase, nombre, contenedor=None):
@@ -553,6 +566,12 @@ class RecalculoRTKDialog(QDialog):
         for _clave_modelo in vemos.ORDEN_MODELOS:
             _info_modelo = vemos.MODELOS[_clave_modelo]
             self.cb_modelo_vemos.addItem("{} ({})".format(_clave_modelo, _info_modelo["marco"]), _clave_modelo)
+        # VEL-Ar v2.0 (IGN Argentina): modelo distinto de los VEMOS, con sus
+        # propias grillas y su propio marco oficial (POSGAR07, época
+        # 2006.632) — ver _on_cambio_modelo_epoca para el salto automático
+        # de la época destino al elegirlo, y "_on_ejecutar" para el resto
+        # de las diferencias de algoritmo frente a VEMOS.
+        self.cb_modelo_vemos.addItem(self._tr("opcion_modelo_velar"), CLAVE_MODELO_VELAR)
         epoca_form.addRow(self._tr("lbl_modelo_vemos"), self.cb_modelo_vemos)
 
         self.ed_epoca_destino = QLineEdit(self._tr("valor_epoca_magna_sirgas"))
@@ -581,10 +600,12 @@ class RecalculoRTKDialog(QDialog):
         self.chk_epoca.toggled.connect(self.widget_epoca_detalle.setVisible)
         epoca_layout.addWidget(self.widget_epoca_detalle)
 
-        # Caché de grillas VEMOS ya leídas (clave de modelo) para no
-        # releer el archivo en cada punto ni en cada cambio del combo.
+        # Caché de grillas VEMOS ya leídas (clave de modelo) y del modelo
+        # VEL-Ar (una sola instancia, no hay variantes) para no releer los
+        # archivos en cada punto ni en cada cambio del combo.
         self._vemos_grids_cache = {}
-        self.cb_modelo_vemos.currentIndexChanged.connect(self._actualizar_cobertura_vemos)
+        self._velar_modelo_cache = None
+        self.cb_modelo_vemos.currentIndexChanged.connect(self._on_cambio_modelo_epoca)
         self._actualizar_cobertura_vemos()
         self._actualizar_epoca_obs_decimal()
 
@@ -903,19 +924,54 @@ class RecalculoRTKDialog(QDialog):
             self._vemos_grids_cache[clave_modelo] = vemos.leer_vemos(ruta)
         return self._vemos_grids_cache[clave_modelo]
 
+    def _resolver_modelo_velar(self):
+        """Retorna el modelo VEL-Ar (``velar_ar.ModeloVelAr``), leyendo las
+        5 grillas solo la primera vez (desde la carpeta ``velar_data/``
+        incluida con el complemento) y reutilizando el resultado en
+        llamadas posteriores, igual que ``_resolver_grid_vemos``."""
+        if self._velar_modelo_cache is None:
+            self._velar_modelo_cache = velar_ar.ModeloVelAr.desde_carpeta(DIR_VELAR_DATOS)
+        return self._velar_modelo_cache
+
+    def _on_cambio_modelo_epoca(self):
+        """Se llama al cambiar el modelo elegido para la corrección de
+        época. Dos cosas: (1) si la época destino seguía en el valor por
+        defecto del otro modelo, la salta al valor por defecto del modelo
+        recién elegido (MAGNA-SIRGAS 2018.000 para VEMOS, POSGAR07 2006.632
+        para VEL-Ar) — si el usuario ya la había cambiado a mano, se deja
+        como está; (2) actualiza la etiqueta de cobertura real."""
+        clave = self.cb_modelo_vemos.currentData()
+        destino_actual = self.ed_epoca_destino.text().strip()
+        valor_magna_sirgas = self._tr("valor_epoca_magna_sirgas")
+        valor_posgar07 = "{:.3f}".format(velar_ar.EPOCA_POSGAR07)
+        if clave == CLAVE_MODELO_VELAR and destino_actual == valor_magna_sirgas:
+            self.ed_epoca_destino.setText(valor_posgar07)
+        elif clave != CLAVE_MODELO_VELAR and destino_actual == valor_posgar07:
+            self.ed_epoca_destino.setText(valor_magna_sirgas)
+        self._actualizar_cobertura_vemos()
+
     def _actualizar_cobertura_vemos(self):
         """Actualiza la etiqueta de cobertura real bajo el selector de
-        modelo VEMOS. No interrumpe al usuario con un cuadro de error
-        si el archivo no se puede leer todavía (p. ej. carpeta
-        vemos_data/ incompleta): el error real se muestra solo al
-        intentar calcular con la corrección activada."""
+        modelo de corrección de época (VEMOS o VEL-Ar). No interrumpe al
+        usuario con un cuadro de error si el archivo no se puede leer
+        todavía (p. ej. carpeta vemos_data//velar_data/ incompleta): el
+        error real se muestra solo al intentar calcular con la corrección
+        activada."""
         clave = self.cb_modelo_vemos.currentData()
         if not clave:
             return
         texto = ""
         with contextlib.suppress(OSError, ValueError):
-            grid = self._resolver_grid_vemos(clave)
-            texto = self._tr("lbl_cobertura_vemos", zona=vemos.texto_cobertura(grid), nodos=len(grid))
+            if clave == CLAVE_MODELO_VELAR:
+                modelo = self._resolver_modelo_velar()
+                texto = self._tr(
+                    "lbl_cobertura_vemos",
+                    zona=velar_ar.texto_cobertura(modelo),
+                    nodos=len(modelo.grillas["lin"].nodos),
+                )
+            else:
+                grid = self._resolver_grid_vemos(clave)
+                texto = self._tr("lbl_cobertura_vemos", zona=vemos.texto_cobertura(grid), nodos=len(grid))
         self.lbl_cobertura_vemos.setText(texto or self._tr("lbl_cobertura_vemos_no_disp"))
 
     def _actualizar_epoca_obs_decimal(self):
@@ -993,8 +1049,13 @@ class RecalculoRTKDialog(QDialog):
         epoca_destino = None
         epoca_obs = None
         grid_epoca = None
+        es_velar_epoca = False
+        nombre_modelo_epoca = None
+        marco_epoca = None
+        aviso_zona_sismica_vemos = False
         if aplicar_epoca:
             clave_modelo_epoca = self.cb_modelo_vemos.currentData()
+            es_velar_epoca = clave_modelo_epoca == CLAVE_MODELO_VELAR
             try:
                 epoca_destino = core.parse_float(self.ed_epoca_destino.text())
             except ValueError as exc:
@@ -1005,18 +1066,34 @@ class RecalculoRTKDialog(QDialog):
             fecha_epoca_obs = self.fecha_epoca_obs.date()
             epoca_obs = vemos.epoca_decimal(fecha_epoca_obs.year(), fecha_epoca_obs.dayOfYear())
             try:
-                grid_epoca = self._resolver_grid_vemos(clave_modelo_epoca)
+                if es_velar_epoca:
+                    grid_epoca = self._resolver_modelo_velar()
+                else:
+                    grid_epoca = self._resolver_grid_vemos(clave_modelo_epoca)
             except (OSError, ValueError) as exc:
                 QMessageBox.critical(
                     self, self._tr("err_vemos_archivo_titulo"), self._tr("err_vemos_archivo_msg", error=exc)
                 )
                 return
-            if vemos.fuera_de_vigencia(clave_modelo_epoca, epoca_obs):
-                info_modelo_epoca = vemos.MODELOS[clave_modelo_epoca]
-                self._log(self._tr(
-                    "log_epoca_fuera_vigencia", modelo=clave_modelo_epoca,
-                    t_ini=info_modelo_epoca["t_ini"], t_fin=info_modelo_epoca["t_fin"],
-                ))
+            if es_velar_epoca:
+                # VEL-Ar v2.0: un solo modelo oficial (IGN Argentina), sin
+                # periodo de vigencia equivalente al de cada grilla VEMOS, y
+                # con su propio marco (POSGAR07 si la época destino es la
+                # oficial 2006.632, o POSGAR07b en cualquier otro caso — ver
+                # velar_ar.cambiar_epoca/core.coords_finales_resultado_epoca).
+                nombre_modelo_epoca = "VEL-Ar v2.0"
+                marco_epoca = (
+                    "POSGAR07" if abs(epoca_destino - velar_ar.EPOCA_POSGAR07) < 5e-4 else "POSGAR07b"
+                )
+            else:
+                nombre_modelo_epoca = clave_modelo_epoca
+                marco_epoca = vemos.MODELOS[clave_modelo_epoca]["marco"]
+                if vemos.fuera_de_vigencia(clave_modelo_epoca, epoca_obs):
+                    info_modelo_epoca = vemos.MODELOS[clave_modelo_epoca]
+                    self._log(self._tr(
+                        "log_epoca_fuera_vigencia", modelo=clave_modelo_epoca,
+                        t_ini=info_modelo_epoca["t_ini"], t_fin=info_modelo_epoca["t_fin"],
+                    ))
 
         dx, dy, dz = core.compute_delta(base_libre, base_ajustada)
         dz_texto = "{:.4f}".format(dz) if dz is not None else self._tr("log_dz_na")
@@ -1039,7 +1116,7 @@ class RecalculoRTKDialog(QDialog):
         if aplicar_epoca:
             nuevo_header += [
                 "X_epoca", "Y_epoca", "Z_epoca", "Lon_epoca", "Lat_epoca",
-                "Desplazamiento_epoca_m", "Modelo_epoca", "Epoca_obs", "Epoca_destino",
+                "Desplazamiento_epoca_m", "Modelo_epoca", "Marco_epoca", "Epoca_obs", "Epoca_destino",
             ]
         nuevas_filas = []
         puntos_reporte = []
@@ -1076,29 +1153,51 @@ class RecalculoRTKDialog(QDialog):
 
             resultado_epoca = None
             x_epoca = y_epoca = None
+            lat_final_epoca = lon_final_epoca = h_final_epoca = None
             if aplicar_epoca:
                 if lon == "" or lat == "":
                     # Ya es un error de transformación; no tiene sentido
                     # intentar la corrección de época sobre coordenadas
                     # geográficas que no se pudieron calcular.
                     fila_salida += [
-                        "", "", "", "", "", "", clave_modelo_epoca,
+                        "", "", "", "", "", "", nombre_modelo_epoca, marco_epoca,
                         "{:.3f}".format(epoca_obs), "{:.3f}".format(epoca_destino),
                     ]
                 else:
                     h_para_epoca = r["z_adj"] if r["z_adj"] is not None else 0.0
-                    resultado_epoca = vemos.cambiar_epoca(grid_epoca, lat, lon, h_para_epoca, epoca_obs, epoca_destino)
+                    if es_velar_epoca:
+                        resultado_epoca = velar_ar.cambiar_epoca(grid_epoca, lat, lon, h_para_epoca, epoca_obs, epoca_destino)
+                    else:
+                        resultado_epoca = vemos.cambiar_epoca(grid_epoca, lat, lon, h_para_epoca, epoca_obs, epoca_destino)
+                        # VEMOS no incluye saltos cosísmicos: si el intervalo de
+                        # época cruza el terremoto de Maule (2010.159) o el de
+                        # Illapel (2015.710) y el punto cae en esa zona andina,
+                        # el error de VEMOS puede ser grande (ver skill/README) —
+                        # se avisa una sola vez al terminar, sin interrumpir el
+                        # cálculo (igual que el resto de avisos de esta sección).
+                        if velar_ar.zona_sismica_maule_illapel(lat, lon, epoca_obs, epoca_destino):
+                            aviso_zona_sismica_vemos = True
                     if resultado_epoca is None:
                         puntos_fuera_cobertura_epoca += 1
                         fila_salida += [
-                            "", "", "", "", "", "", clave_modelo_epoca,
+                            "", "", "", "", "", "", nombre_modelo_epoca, marco_epoca,
                             "{:.3f}".format(epoca_obs), "{:.3f}".format(epoca_destino),
                         ]
                     else:
                         puntos_corregidos_epoca += 1
+                        # lat_final_epoca/lon_final_epoca/h_final_epoca: la
+                        # coordenada POSGAR07 oficial si el modelo es VEL-Ar y
+                        # la época destino es la oficial (2006.632), o la
+                        # propia coordenada del resultado en cualquier otro
+                        # caso (el marco del modelo VEMOS elegido, o POSGAR07b
+                        # para VEL-Ar con otra época destino) — ver
+                        # core.coords_finales_resultado_epoca.
+                        lat_final_epoca, lon_final_epoca, h_final_epoca = core.coords_finales_resultado_epoca(
+                            resultado_epoca, r["z_adj"] is not None
+                        )
                         try:
                             punto_plano_epoca = transform_inv.transform(
-                                QgsPointXY(resultado_epoca.lon, resultado_epoca.lat)
+                                QgsPointXY(lon_final_epoca, lat_final_epoca)
                             )
                             x_epoca, y_epoca = punto_plano_epoca.x(), punto_plano_epoca.y()
                         except Exception:
@@ -1106,11 +1205,12 @@ class RecalculoRTKDialog(QDialog):
                         fila_salida += [
                             "{:.4f}".format(x_epoca) if x_epoca is not None else "",
                             "{:.4f}".format(y_epoca) if y_epoca is not None else "",
-                            "{:.4f}".format(resultado_epoca.h) if r["z_adj"] is not None else "",
-                            "{:.9f}".format(resultado_epoca.lon),
-                            "{:.9f}".format(resultado_epoca.lat),
+                            "{:.4f}".format(h_final_epoca) if h_final_epoca is not None else "",
+                            "{:.9f}".format(lon_final_epoca),
+                            "{:.9f}".format(lat_final_epoca),
                             "{:.4f}".format(resultado_epoca.desplazamiento_m),
-                            clave_modelo_epoca,
+                            nombre_modelo_epoca,
+                            marco_epoca,
                             "{:.3f}".format(epoca_obs),
                             "{:.3f}".format(epoca_destino),
                         ]
@@ -1122,8 +1222,7 @@ class RecalculoRTKDialog(QDialog):
             # geometría exportada usa la coordenada ajustada (sin
             # corrección de época), igual que si la opción no existiera.
             if aplicar_epoca and resultado_epoca is not None and x_epoca is not None and y_epoca is not None:
-                z_final = resultado_epoca.h if r["z_adj"] is not None else None
-                coords_finales.append((x_epoca, y_epoca, z_final))
+                coords_finales.append((x_epoca, y_epoca, h_final_epoca))
             else:
                 coords_finales.append((r["x_adj"], r["y_adj"], r["z_adj"]))
 
@@ -1140,18 +1239,16 @@ class RecalculoRTKDialog(QDialog):
                 }
                 if aplicar_epoca:
                     # Coordenadas ya corregidas por el modelo de velocidades
-                    # VEMOS (ver "_on_ejecutar" arriba); quedan en None si el
-                    # punto cayó fuera de la cobertura real del modelo o no
-                    # se pudo reproyectar — el reporte las muestra como
-                    # "N/A" en ese caso (ver core._tabla_epoca_html/
-                    # construir_reporte_html).
+                    # elegido (VEMOS o VEL-Ar, ver "_on_ejecutar" arriba);
+                    # quedan en None si el punto cayó fuera de la cobertura
+                    # real del modelo o no se pudo reproyectar — el reporte
+                    # las muestra como "N/A" en ese caso (ver
+                    # core._tabla_epoca_html/construir_reporte_html).
                     punto_reporte["x_epoca"] = x_epoca
                     punto_reporte["y_epoca"] = y_epoca
-                    punto_reporte["z_epoca"] = (
-                        resultado_epoca.h if (resultado_epoca is not None and r["z_adj"] is not None) else None
-                    )
-                    punto_reporte["lon_epoca"] = resultado_epoca.lon if resultado_epoca is not None else None
-                    punto_reporte["lat_epoca"] = resultado_epoca.lat if resultado_epoca is not None else None
+                    punto_reporte["z_epoca"] = h_final_epoca
+                    punto_reporte["lon_epoca"] = lon_final_epoca
+                    punto_reporte["lat_epoca"] = lat_final_epoca
                     punto_reporte["desplazamiento_epoca_m"] = (
                         resultado_epoca.desplazamiento_m if resultado_epoca is not None else None
                     )
@@ -1174,11 +1271,16 @@ class RecalculoRTKDialog(QDialog):
             self._log(self._tr("log_errores_transform", n=errores_transform))
         if aplicar_epoca:
             self._log(self._tr(
-                "log_epoca_aplicada", modelo=clave_modelo_epoca,
+                "log_epoca_aplicada", modelo=nombre_modelo_epoca,
                 corregidos=puntos_corregidos_epoca, fuera=puntos_fuera_cobertura_epoca,
             ))
             if puntos_fuera_cobertura_epoca:
-                self._log(self._tr("log_epoca_fuera_cobertura", zona=vemos.texto_cobertura(grid_epoca)))
+                zona_cobertura_epoca = (
+                    velar_ar.texto_cobertura(grid_epoca) if es_velar_epoca else vemos.texto_cobertura(grid_epoca)
+                )
+                self._log(self._tr("log_epoca_fuera_cobertura", zona=zona_cobertura_epoca))
+            if aviso_zona_sismica_vemos:
+                self._log(self._tr("log_epoca_zona_sismica_vemos"))
         self._log(self._tr("log_archivo_generado", ruta=out_path))
 
         nombre_id = self._csv_header[idx_id] if idx_id is not None else None
@@ -1261,13 +1363,14 @@ class RecalculoRTKDialog(QDialog):
                 "idioma": self.idioma,
             }
             if aplicar_epoca:
-                info_modelo_epoca = vemos.MODELOS[clave_modelo_epoca]
                 info_reporte["epoca_info"] = {
-                    "modelo": clave_modelo_epoca,
-                    "marco": info_modelo_epoca["marco"],
+                    "modelo": nombre_modelo_epoca,
+                    "marco": marco_epoca,
                     "epoca_destino": epoca_destino,
                     "epoca_obs": epoca_obs,
-                    "cobertura": vemos.texto_cobertura(grid_epoca),
+                    "cobertura": (
+                        velar_ar.texto_cobertura(grid_epoca) if es_velar_epoca else vemos.texto_cobertura(grid_epoca)
+                    ),
                     "corregidos": puntos_corregidos_epoca,
                     "fuera_cobertura": puntos_fuera_cobertura_epoca,
                 }

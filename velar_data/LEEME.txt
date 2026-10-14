@@ -1,0 +1,27 @@
+Modelo VEL-Ar v2.0 (grillas de velocidades y saltos para Argentina)
+===================================================================
+
+Archivos (formato texto: lat, lon, componente Norte, componente Este, en m o m/año):
+  vel-ar-lin.txt           velocidad intersísmica lineal (m/año)
+  vel-ar-cos-maule.txt     salto cosísmico terremoto Maule 2010.159 (m)
+  vel-ar-cos-illapel.txt   salto cosísmico terremoto Illapel 2015.710 (m)
+  vel-ar-log-maule.txt     amplitud de la relajación postsísmica logarítmica, Maule (m)
+  vel-ar-log-illapel.txt   amplitud de la relajación postsísmica logarítmica, Illapel (m)
+
+Origen: paquete oficial "VEL-Ar v2.0" publicado por el Instituto Geográfico
+Nacional de la República Argentina (IGN) y la Ohio State University
+(modelo: Bevis & Brown 2014; Gómez et al. 2015). Las grillas se copiaron sin
+cambios de valores; sólo se normalizaron los fines de línea (CRLF -> LF).
+
+Referencia: Manual VEL-Ar v2.0, IGN Argentina. Calculadora oficial en
+https://www.ign.gob.ar (Geodesia > VEL-Ar). Error típico del modelo: ~5 cm.
+
+El cálculo del plugin (velar_ar.py) es una reimplementación en Python puro
+validada contra el programa oficial (diferencias < 1,5 cm en el territorio
+continental argentino). Para trabajos que exijan el resultado oficial, confirme
+con la calculadora del IGN.
+
+IMPORTANTE (licencia): el paquete original no declara una licencia de
+redistribución visible. Si usted o su organización publican este plugin, confirme
+con el IGN las condiciones de redistribución de las grillas o retírelas
+(carpeta velar_data) y pida a los usuarios que las descarguen del IGN.

@@ -174,16 +174,27 @@ _TEXTOS = {
         "placeholder_col": "-- Seleccione una columna --",
         "placeholder_col_opcional": "-- No aplica / usar número de fila --",
         "grp_crs": "Sistemas de referencia",
-        "lbl_crs_plano": "CRS plano/proyectado de las coordenadas X, Y:",
-        "lbl_crs_geo": "CRS geográfico de salida (lon/lat):",
+        "lbl_crs_plano": "CRS plano / proyectado:",
+        "lbl_crs_geo": "CRS geográfico (salida):",
         "grp_resultado": "Resultado",
         "placeholder_out_path": "Ruta del CSV de salida...",
         "btn_guardar_como": "Guardar como...",
         "chk_capa_ajustada": "Agregar capa de puntos AJUSTADOS al proyecto",
         "chk_capa_libre": "Agregar capa de puntos LIBRES (originales) al proyecto",
-        "grp_export_adicional": "Exportar puntos ajustados también en otros formatos",
+        "grp_export_adicional": "Exportar a otros formatos",
         "chk_export_shp": "Exportar a Shapefile (.shp)",
         "chk_export_dxf": "Exportar a DXF (.dxf)",
+        "chip_shp": "SHP (.shp)",
+        "chip_dxf": "DXF (.dxf)",
+        "lbl_col_id_corta": "ID:",
+        "lbl_col_x_corta": "X / Este:",
+        "lbl_col_y_corta": "Y / Norte:",
+        "lbl_col_z_corta": "Z / Elev.:",
+        "lbl_columna_entrada": "Entrada",
+        "lbl_columna_salida": "Salida y exportación",
+        "lbl_registro": "Registro",
+        "tooltip_vector": "Traslación de la base libre a la base ajustada",
+        "dlg_ayuda_titulo": "Ayuda",
         "nota_dxf": (
             "Nota: el formato DXF no maneja una tabla de atributos como tal; se exporta la "
             "geometría de los puntos (con elevación si está disponible) junto con una etiqueta "
@@ -206,6 +217,68 @@ _TEXTOS = {
         "placeholder_log": "Aquí aparecerá el resultado del proceso...",
         "btn_calcular": "Calcular y exportar",
         "btn_cerrar": "Cerrar",
+
+        # --- Corrección de época (VEMOS / VEL-Ar, opcional) ---------------
+        "chk_epoca_vemos": "Aplicar cambio de época (VEMOS / VEL-Ar)",
+        "nota_epoca_vemos": (
+            "Lleva las coordenadas geográficas ajustadas de su época de observación a una "
+            "época destino, usando modelos de velocidades. Para Colombia y el resto de "
+            "Latinoamérica: modelos VEMOS de SIRGAS/DGFI-TUM (p. ej. MAGNA-SIRGAS = ITRF2014 "
+            "época 2018.0, Resolución IGAC 715 de 2018). Para Argentina: modelo oficial "
+            "VEL-Ar v2.0 del IGN, marco POSGAR07 (época 2006.632) — incluye los saltos "
+            "cosísmicos y la relajación postsísmica de los terremotos de Maule (2010.159) e "
+            "Illapel (2015.710), que VEMOS no modela; en la zona andina (Mendoza, San Juan, "
+            "Neuquén, La Pampa, Río Negro...) usar VEMOS si el intervalo cruza esas fechas "
+            "puede dar un error de 20 cm o más. Solo cambia la ÉPOCA dentro del marco del "
+            "modelo elegido: VEMOS no cambia el marco de referencia (ITRF) ni la altura por "
+            "geoide. Si la base ajustada ya está en la época destino, no es necesario activar "
+            "esta opción. Ningún modelo cubre todo el continente; los puntos fuera de su zona "
+            "de cobertura real quedan sin corregir y se avisa en el registro."
+        ),
+        "lbl_modelo_vemos": "Modelo:",
+        "opcion_modelo_velar": "VEL-Ar v2.0 · POSGAR07 · Argentina (IGN)",
+        "lbl_epoca_destino": "Época destino:",
+        "lbl_epoca_obs": "Fecha de observación:",
+        "lbl_epoca_obs_decimal": "→ año decimal: {valor}",
+        "valor_epoca_magna_sirgas": "2018.000",
+        "lbl_cobertura_vemos": "Cobertura real del modelo: {zona} ({nodos} nodos).",
+        "lbl_cobertura_vemos_no_disp": "No se pudo leer el archivo del modelo seleccionado.",
+        "err_vemos_archivo_titulo": "No se pudo cargar el modelo de corrección de época",
+        "err_vemos_archivo_msg": (
+            "No se pudo leer el archivo del modelo de corrección de época (VEMOS o VEL-Ar) "
+            "necesario: {error}"
+        ),
+        "warn_epoca_invalida_titulo": "Época inválida",
+        "warn_epoca_destino_invalida": "La época destino no es un número válido: {error}",
+        "log_epoca_fuera_vigencia": (
+            "Aviso: la época de observación cae fuera del periodo de datos de {modelo} "
+            "({t_ini}-{t_fin}); la corrección es una extrapolación."
+        ),
+        "log_epoca_aplicada": (
+            "Corrección de época ({modelo}): {corregidos} punto(s) corregido(s), "
+            "{fuera} fuera de la cobertura real del modelo."
+        ),
+        "log_epoca_fuera_cobertura": "Cobertura real del modelo usado: {zona}.",
+        "log_epoca_zona_sismica_vemos": (
+            "Aviso: al menos un punto está en la zona andina y el intervalo de época cruza el "
+            "terremoto de Maule (2010.159) o Illapel (2015.710). VEMOS no incluye saltos "
+            "cosísmicos: para Argentina, el modelo VEL-Ar v2.0 (IGN) da resultados más "
+            "precisos en este caso."
+        ),
+        "rpt_epoca_h2": "Corrección de época (VEMOS / VEL-Ar)",
+        "rpt_epoca_modelo": "Modelo",
+        "rpt_epoca_marco": "Marco de referencia",
+        "rpt_epoca_destino": "Época destino",
+        "rpt_epoca_obs": "Época de observación",
+        "rpt_epoca_cobertura": "Cobertura real del modelo",
+        "rpt_epoca_corregidos": "Puntos corregidos",
+        "rpt_epoca_fuera": "Puntos fuera de cobertura (sin corregir)",
+        "rpt_epoca_nota": (
+            "Cambio de época dentro del mismo marco de referencia (no cambia el marco ITRF "
+            "ni recalcula el geoide; no incluye saltos cosísmicos). Las columnas "
+            "\"X/Y/Z_ajustada\" y \"Lon/Lat_ajustada\" del CSV de salida quedan sin corregir "
+            "de época; las columnas nuevas \"*_epoca\" sí incluyen la corrección."
+        ),
 
         # --- Diálogos de archivo -----------------------------------------
         "dlg_sel_csv_titulo": "Seleccionar archivo CSV",
@@ -339,6 +412,12 @@ _TEXTOS = {
         "rpt_col_z_adj": "Z ajustada",
         "rpt_col_lon": "Longitud",
         "rpt_col_lat": "Latitud",
+        "rpt_col_x_epoca": "X época",
+        "rpt_col_y_epoca": "Y época",
+        "rpt_col_z_epoca": "Z época",
+        "rpt_col_lon_epoca": "Longitud época",
+        "rpt_col_lat_epoca": "Latitud época",
+        "rpt_col_desplazamiento_epoca": "Despl. época (m)",
         "rpt_cierre": (
             'Fin del reporte — generado automáticamente por el complemento '
             '"{nombre_plugin}" (v{version}) para QGIS.'
@@ -399,16 +478,27 @@ _TEXTOS = {
         "placeholder_col": "-- Select a column --",
         "placeholder_col_opcional": "-- Not applicable / use row number --",
         "grp_crs": "Reference systems",
-        "lbl_crs_plano": "Plane/projected CRS for X, Y coordinates:",
-        "lbl_crs_geo": "Output geographic CRS (lon/lat):",
+        "lbl_crs_plano": "Plane / projected CRS:",
+        "lbl_crs_geo": "Geographic CRS (output):",
         "grp_resultado": "Result",
         "placeholder_out_path": "Output CSV path...",
         "btn_guardar_como": "Save as...",
         "chk_capa_ajustada": "Add ADJUSTED points layer to the project",
         "chk_capa_libre": "Add FREE (original) points layer to the project",
-        "grp_export_adicional": "Also export adjusted points in other formats",
+        "grp_export_adicional": "Export to other formats",
         "chk_export_shp": "Export to Shapefile (.shp)",
         "chk_export_dxf": "Export to DXF (.dxf)",
+        "chip_shp": "SHP (.shp)",
+        "chip_dxf": "DXF (.dxf)",
+        "lbl_col_id_corta": "ID:",
+        "lbl_col_x_corta": "X / Easting:",
+        "lbl_col_y_corta": "Y / Northing:",
+        "lbl_col_z_corta": "Z / Elev.:",
+        "lbl_columna_entrada": "Input",
+        "lbl_columna_salida": "Output and export",
+        "lbl_registro": "Log",
+        "tooltip_vector": "Translation from the free base to the adjusted base",
+        "dlg_ayuda_titulo": "Help",
         "nota_dxf": (
             "Note: the DXF format does not handle an attribute table as such; the "
             "point geometry is exported (with elevation if available) along with "
@@ -433,6 +523,67 @@ _TEXTOS = {
         "placeholder_log": "The process result will appear here...",
         "btn_calcular": "Calculate and export",
         "btn_cerrar": "Close",
+
+        # --- Epoch correction (VEMOS / VEL-Ar, optional) ------------------
+        "chk_epoca_vemos": "Apply epoch change (VEMOS / VEL-Ar)",
+        "nota_epoca_vemos": (
+            "Moves the adjusted geographic coordinates from their observation epoch to a "
+            "target epoch, using velocity models. For Colombia and the rest of Latin America: "
+            "the SIRGAS/DGFI-TUM VEMOS models (e.g. MAGNA-SIRGAS = ITRF2014 epoch 2018.0, IGAC "
+            "Resolution 715 of 2018). For Argentina: the IGN's official VEL-Ar v2.0 model, "
+            "POSGAR07 frame (epoch 2006.632) — it includes the coseismic jumps and "
+            "postseismic relaxation of the Maule (2010.159) and Illapel (2015.710) "
+            "earthquakes, which VEMOS does not model; in the Andean zone (Mendoza, San Juan, "
+            "Neuquén, La Pampa, Río Negro...) using VEMOS when the interval crosses those "
+            "dates can give a 20 cm or larger error. This only changes the EPOCH within the "
+            "chosen model's frame: VEMOS does not change the reference frame (ITRF) or the "
+            "geoid-based height. If the adjusted base is already at the target epoch, you do "
+            "not need to enable this option. No model covers the whole continent; points "
+            "outside its real coverage area are left uncorrected and a warning is logged."
+        ),
+        "lbl_modelo_vemos": "Model:",
+        "opcion_modelo_velar": "VEL-Ar v2.0 · POSGAR07 · Argentina (IGN)",
+        "lbl_epoca_destino": "Target epoch:",
+        "lbl_epoca_obs": "Observation date:",
+        "lbl_epoca_obs_decimal": "→ decimal year: {valor}",
+        "valor_epoca_magna_sirgas": "2018.000",
+        "lbl_cobertura_vemos": "Real model coverage: {zona} ({nodos} nodes).",
+        "lbl_cobertura_vemos_no_disp": "Could not read the selected model's file.",
+        "err_vemos_archivo_titulo": "Could not load the epoch correction model",
+        "err_vemos_archivo_msg": (
+            "Could not read the epoch correction model file (VEMOS or VEL-Ar) needed: {error}"
+        ),
+        "warn_epoca_invalida_titulo": "Invalid epoch",
+        "warn_epoca_destino_invalida": "The target epoch is not a valid number: {error}",
+        "log_epoca_fuera_vigencia": (
+            "Warning: the observation epoch falls outside {modelo}'s data period "
+            "({t_ini}-{t_fin}); the correction is an extrapolation."
+        ),
+        "log_epoca_aplicada": (
+            "Epoch correction ({modelo}): {corregidos} point(s) corrected, "
+            "{fuera} outside the model's real coverage."
+        ),
+        "log_epoca_fuera_cobertura": "Real coverage of the model used: {zona}.",
+        "log_epoca_zona_sismica_vemos": (
+            "Warning: at least one point is in the Andean zone and the epoch interval crosses "
+            "the Maule (2010.159) or Illapel (2015.710) earthquake. VEMOS does not include "
+            "coseismic jumps: for Argentina, the VEL-Ar v2.0 (IGN) model gives more accurate "
+            "results in this case."
+        ),
+        "rpt_epoca_h2": "Epoch correction (VEMOS / VEL-Ar)",
+        "rpt_epoca_modelo": "Model",
+        "rpt_epoca_marco": "Reference frame",
+        "rpt_epoca_destino": "Target epoch",
+        "rpt_epoca_obs": "Observation epoch",
+        "rpt_epoca_cobertura": "Real model coverage",
+        "rpt_epoca_corregidos": "Corrected points",
+        "rpt_epoca_fuera": "Points outside coverage (uncorrected)",
+        "rpt_epoca_nota": (
+            "Epoch change within the same reference frame (does not change the ITRF frame "
+            "or recompute the geoid; does not include coseismic jumps). The output CSV's "
+            "\"X/Y/Z_ajustada\" and \"Lon/Lat_ajustada\" columns remain epoch-uncorrected; "
+            "the new \"*_epoca\" columns do include the correction."
+        ),
 
         "dlg_sel_csv_titulo": "Select CSV file",
         "filtro_csv": "CSV files (*.csv);;All files (*)",
@@ -560,6 +711,12 @@ _TEXTOS = {
         "rpt_col_z_adj": "Adjusted Z",
         "rpt_col_lon": "Longitude",
         "rpt_col_lat": "Latitude",
+        "rpt_col_x_epoca": "Epoch X",
+        "rpt_col_y_epoca": "Epoch Y",
+        "rpt_col_z_epoca": "Epoch Z",
+        "rpt_col_lon_epoca": "Epoch longitude",
+        "rpt_col_lat_epoca": "Epoch latitude",
+        "rpt_col_desplazamiento_epoca": "Epoch disp. (m)",
         "rpt_cierre": (
             'End of report — automatically generated by the "{nombre_plugin}" '
             'plugin (v{version}) for QGIS.'
@@ -620,16 +777,27 @@ _TEXTOS = {
         "placeholder_col": "-- Selecione uma coluna --",
         "placeholder_col_opcional": "-- Não aplicável / usar número da linha --",
         "grp_crs": "Sistemas de referência",
-        "lbl_crs_plano": "SRC plano/projetado das coordenadas X, Y:",
-        "lbl_crs_geo": "SRC geográfico de saída (lon/lat):",
+        "lbl_crs_plano": "SRC plano / projetado:",
+        "lbl_crs_geo": "SRC geográfico (saída):",
         "grp_resultado": "Resultado",
         "placeholder_out_path": "Caminho do CSV de saída...",
         "btn_guardar_como": "Salvar como...",
         "chk_capa_ajustada": "Adicionar camada de pontos AJUSTADOS ao projeto",
         "chk_capa_libre": "Adicionar camada de pontos LIVRES (originais) ao projeto",
-        "grp_export_adicional": "Exportar também os pontos ajustados em outros formatos",
+        "grp_export_adicional": "Exportar para outros formatos",
         "chk_export_shp": "Exportar para Shapefile (.shp)",
         "chk_export_dxf": "Exportar para DXF (.dxf)",
+        "chip_shp": "SHP (.shp)",
+        "chip_dxf": "DXF (.dxf)",
+        "lbl_col_id_corta": "ID:",
+        "lbl_col_x_corta": "X / Este:",
+        "lbl_col_y_corta": "Y / Norte:",
+        "lbl_col_z_corta": "Z / Elev.:",
+        "lbl_columna_entrada": "Entrada",
+        "lbl_columna_salida": "Saída e exportação",
+        "lbl_registro": "Registro",
+        "tooltip_vector": "Translação da base livre para a base ajustada",
+        "dlg_ayuda_titulo": "Ajuda",
         "nota_dxf": (
             "Observação: o formato DXF não possui uma tabela de atributos como "
             "tal; é exportada a geometria dos pontos (com elevação, se "
@@ -654,6 +822,68 @@ _TEXTOS = {
         "placeholder_log": "O resultado do processo aparecerá aqui...",
         "btn_calcular": "Calcular e exportar",
         "btn_cerrar": "Fechar",
+
+        # --- Correção de época (VEMOS / VEL-Ar, opcional) -----------------
+        "chk_epoca_vemos": "Aplicar mudança de época (VEMOS / VEL-Ar)",
+        "nota_epoca_vemos": (
+            "Leva as coordenadas geográficas ajustadas da sua época de observação para uma "
+            "época destino, usando modelos de velocidades. Para a Colômbia e o resto da "
+            "América Latina: os modelos VEMOS do SIRGAS/DGFI-TUM (ex.: MAGNA-SIRGAS = "
+            "ITRF2014 época 2018.0, Resolução IGAC 715 de 2018). Para a Argentina: o modelo "
+            "oficial VEL-Ar v2.0 do IGN, referencial POSGAR07 (época 2006.632) — inclui os "
+            "saltos cossísmicos e a relaxação pós-sísmica dos terremotos de Maule (2010.159) "
+            "e Illapel (2015.710), que o VEMOS não modela; na zona andina (Mendoza, San Juan, "
+            "Neuquén, La Pampa, Río Negro...) usar o VEMOS quando o intervalo cruza essas "
+            "datas pode dar um erro de 20 cm ou mais. Só muda a ÉPOCA dentro do referencial do "
+            "modelo escolhido: o VEMOS não muda o referencial (ITRF) nem a altitude pelo "
+            "geoide. Se a base ajustada já está na época destino, não é necessário ativar "
+            "esta opção. Nenhum modelo cobre todo o continente; os pontos fora da sua zona de "
+            "cobertura real ficam sem correção e um aviso é registrado."
+        ),
+        "lbl_modelo_vemos": "Modelo:",
+        "opcion_modelo_velar": "VEL-Ar v2.0 · POSGAR07 · Argentina (IGN)",
+        "lbl_epoca_destino": "Época destino:",
+        "lbl_epoca_obs": "Data de observação:",
+        "lbl_epoca_obs_decimal": "→ ano decimal: {valor}",
+        "valor_epoca_magna_sirgas": "2018.000",
+        "lbl_cobertura_vemos": "Cobertura real do modelo: {zona} ({nodos} nós).",
+        "lbl_cobertura_vemos_no_disp": "Não foi possível ler o arquivo do modelo selecionado.",
+        "err_vemos_archivo_titulo": "Não foi possível carregar o modelo de correção de época",
+        "err_vemos_archivo_msg": (
+            "Não foi possível ler o arquivo do modelo de correção de época (VEMOS ou VEL-Ar) "
+            "necessário: {error}"
+        ),
+        "warn_epoca_invalida_titulo": "Época inválida",
+        "warn_epoca_destino_invalida": "A época destino não é um número válido: {error}",
+        "log_epoca_fuera_vigencia": (
+            "Aviso: a época de observação está fora do período de dados de {modelo} "
+            "({t_ini}-{t_fin}); a correção é uma extrapolação."
+        ),
+        "log_epoca_aplicada": (
+            "Correção de época ({modelo}): {corregidos} ponto(s) corrigido(s), "
+            "{fuera} fora da cobertura real do modelo."
+        ),
+        "log_epoca_fuera_cobertura": "Cobertura real do modelo usado: {zona}.",
+        "log_epoca_zona_sismica_vemos": (
+            "Aviso: pelo menos um ponto está na zona andina e o intervalo de época cruza o "
+            "terremoto de Maule (2010.159) ou Illapel (2015.710). O VEMOS não inclui saltos "
+            "cossísmicos: para a Argentina, o modelo VEL-Ar v2.0 (IGN) dá resultados mais "
+            "precisos nesse caso."
+        ),
+        "rpt_epoca_h2": "Correção de época (VEMOS / VEL-Ar)",
+        "rpt_epoca_modelo": "Modelo",
+        "rpt_epoca_marco": "Referencial",
+        "rpt_epoca_destino": "Época destino",
+        "rpt_epoca_obs": "Época de observação",
+        "rpt_epoca_cobertura": "Cobertura real do modelo",
+        "rpt_epoca_corregidos": "Pontos corrigidos",
+        "rpt_epoca_fuera": "Pontos fora da cobertura (sem correção)",
+        "rpt_epoca_nota": (
+            "Mudança de época dentro do mesmo referencial (não muda o referencial ITRF nem "
+            "recalcula o geoide; não inclui saltos cossísmicos). As colunas \"X/Y/Z_ajustada\" "
+            "e \"Lon/Lat_ajustada\" do CSV de saída permanecem sem correção de época; as novas "
+            "colunas \"*_epoca\" incluem a correção."
+        ),
 
         "dlg_sel_csv_titulo": "Selecionar arquivo CSV",
         "filtro_csv": "Arquivos CSV (*.csv);;Todos os arquivos (*)",
@@ -781,6 +1011,12 @@ _TEXTOS = {
         "rpt_col_z_adj": "Z ajustado",
         "rpt_col_lon": "Longitude",
         "rpt_col_lat": "Latitude",
+        "rpt_col_x_epoca": "X época",
+        "rpt_col_y_epoca": "Y época",
+        "rpt_col_z_epoca": "Z época",
+        "rpt_col_lon_epoca": "Longitude época",
+        "rpt_col_lat_epoca": "Latitude época",
+        "rpt_col_desplazamiento_epoca": "Desl. época (m)",
         "rpt_cierre": (
             'Fim do relatório — gerado automaticamente pelo complemento '
             '"{nombre_plugin}" (v{version}) para o QGIS.'

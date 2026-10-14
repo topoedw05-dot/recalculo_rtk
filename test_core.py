@@ -108,6 +108,46 @@ def test_etiqueta_punto():
     print("OK: test_etiqueta_punto")
 
 
+def test_estilo_etiqueta_dxf():
+    # Caso normal: la etiqueta queda tal cual dentro de LABEL(t:"...").
+    assert core.estilo_etiqueta_dxf("P1") == 'LABEL(t:"P1")'
+    assert core.estilo_etiqueta_dxf("PR-1") == 'LABEL(t:"PR-1")'
+    # Una comilla doble en la etiqueta debe escaparse para no romper
+    # la sintaxis del "Feature Style String" (delimitador del t:).
+    assert core.estilo_etiqueta_dxf('P"1') == 'LABEL(t:"P\\"1")'
+    # Una barra invertida también se escapa.
+    assert core.estilo_etiqueta_dxf("P\\1") == 'LABEL(t:"P\\\\1")'
+    print("OK: test_estilo_etiqueta_dxf")
+
+
+class _ResultadoEpocaFalso:
+    """Doble simple de vemos.ResultadoEpoca/velar_ar.ResultadoVelAr, solo con
+    los atributos que coords_finales_resultado_epoca necesita, para probar
+    la función sin importar ninguno de esos dos módulos desde test_core.py."""
+
+    def __init__(self, lat, lon, h, lat_p07=None, lon_p07=None, h_p07=None):
+        self.lat, self.lon, self.h = lat, lon, h
+        self.lat_p07, self.lon_p07, self.h_p07 = lat_p07, lon_p07, h_p07
+
+
+def test_coords_finales_resultado_epoca():
+    # Caso VEMOS (o VEL-Ar con época destino distinta de POSGAR07): no hay
+    # lat_p07, se usan lat/lon/h directamente.
+    res_vemos = _ResultadoEpocaFalso(lat=4.6, lon=-74.1, h=2600.0)
+    assert core.coords_finales_resultado_epoca(res_vemos, hay_altura=True) == (4.6, -74.1, 2600.0)
+    # Sin altura de entrada (hay_altura=False): la altura final queda en None.
+    assert core.coords_finales_resultado_epoca(res_vemos, hay_altura=False) == (4.6, -74.1, None)
+
+    # Caso VEL-Ar con época destino POSGAR07 (2006.632): se usa lat_p07/
+    # lon_p07/h_p07 en vez de lat/lon/h (que serían POSGAR07b).
+    res_velar = _ResultadoEpocaFalso(
+        lat=-33.9759, lon=-69.0606, h=50.0, lat_p07=-33.97594, lon_p07=-69.06060, h_p07=50.01,
+    )
+    assert core.coords_finales_resultado_epoca(res_velar, hay_altura=True) == (-33.97594, -69.06060, 50.01)
+    assert core.coords_finales_resultado_epoca(res_velar, hay_altura=False) == (-33.97594, -69.06060, None)
+    print("OK: test_coords_finales_resultado_epoca")
+
+
 def test_traslacion_es_igual_para_todos_los_puntos():
     """Verifica la propiedad central del metodo: el desplazamiento
     aplicado (X_ajustada - X_original) es identico para todos los
@@ -471,12 +511,92 @@ def test_construir_reporte_html_sin_proyecto_ni_responsable():
     print("OK: test_construir_reporte_html_sin_proyecto_ni_responsable")
 
 
+def test_construir_reporte_html_con_correccion_epoca():
+    """Cuando se activa la corrección de época (VEMOS), el reporte debe
+    incluir la sección con el modelo, marco, épocas, cobertura real y
+    el conteo de puntos corregidos/fuera de cobertura; sin esa llave,
+    la sección no debe aparecer (ver test_construir_reporte_html)."""
+    info = {
+        "fecha": "2026-10-12 10:00",
+        "version_plugin": "1.5.0",
+        "proyecto": "",
+        "responsable": "",
+        "archivo_entrada": "puntos.csv",
+        "archivo_salida": "puntos_ajustado.csv",
+        "base_libre": (0, 0, None),
+        "base_ajustada": (1, 1, None),
+        "dx": 1.0, "dy": 1.0, "dz": None,
+        "crs_plano": "EPSG:3116",
+        "crs_geo": "EPSG:4686",
+        "total_filas": 2,
+        "procesados": 2,
+        "errores": [],
+        "errores_transform": 0,
+        "puntos": [
+            {
+                "etiqueta": "P1", "x": 1000.0, "y": 2000.0, "z": 2600.0,
+                "x_adj": 1001.0, "y_adj": 2001.0, "z_adj": 2600.0,
+                "lon": -74.1, "lat": 4.6,
+                "x_epoca": 1001.05, "y_epoca": 2001.04, "z_epoca": 2600.0,
+                "lon_epoca": -74.099999, "lat_epoca": 4.600001,
+                "desplazamiento_epoca_m": 0.0372,
+            },
+            {
+                # Punto fuera de la cobertura real del modelo: las
+                # columnas de época deben quedar en None -> "N/A" en
+                # el reporte, igual que vacías en el CSV de salida.
+                "etiqueta": "P2", "x": 1000.0, "y": 2000.0, "z": 2600.0,
+                "x_adj": 1001.0, "y_adj": 2001.0, "z_adj": 2600.0,
+                "lon": -100.0, "lat": 31.0,
+                "x_epoca": None, "y_epoca": None, "z_epoca": None,
+                "lon_epoca": None, "lat_epoca": None,
+                "desplazamiento_epoca_m": None,
+            },
+        ],
+        "epoca_info": {
+            "modelo": "VEMOS2022",
+            "marco": "ITRF2020",
+            "epoca_destino": 2018.0,
+            "epoca_obs": 2020.5,
+            "cobertura": "55°S a 13°N, 86°W a 35°W",
+            "corregidos": 1,
+            "fuera_cobertura": 1,
+        },
+    }
+    reporte = core.construir_reporte_html(info)
+    assert "VEMOS2022" in reporte
+    assert "ITRF2020" in reporte
+    assert "55°S a 13°N, 86°W a 35°W" in reporte
+    assert "2018.000" in reporte
+    assert "2020.500" in reporte
+
+    # La tabla de puntos debe traer las columnas de coordenadas
+    # corregidas por época (encabezados) y, para el punto corregido,
+    # sus valores reales; para el punto fuera de cobertura, "N/A".
+    assert "X época" in reporte and "Longitud época" in reporte and "Despl. época (m)" in reporte
+    assert "1001.050" in reporte  # X_epoca de P1
+    assert "0.037" in reporte  # desplazamiento de P1
+    assert reporte.count("N/A") >= 6  # las 6 columnas de época de P2, todas vacías
+
+    # Sin 'epoca_info' (caso normal, sin la corrección activada), la
+    # sección y las columnas de época no deben aparecer en absoluto,
+    # aunque los puntos (de otra prueba) pudieran traer esas llaves.
+    info_sin_epoca = dict(info)
+    del info_sin_epoca["epoca_info"]
+    reporte_sin_epoca = core.construir_reporte_html(info_sin_epoca)
+    assert "VEMOS" not in reporte_sin_epoca
+    assert "X época" not in reporte_sin_epoca
+    print("OK: test_construir_reporte_html_con_correccion_epoca")
+
+
 if __name__ == "__main__":
     test_parse_float()
     test_compute_delta()
     test_csv_roundtrip_and_recalculo()
     test_sugerir_ruta_con_extension()
     test_etiqueta_punto()
+    test_estilo_etiqueta_dxf()
+    test_coords_finales_resultado_epoca()
     test_traslacion_es_igual_para_todos_los_puntos()
     test_dms()
     test_fmt_crs_num()
@@ -490,4 +610,5 @@ if __name__ == "__main__":
     test_construir_reporte_html()
     test_construir_reporte_html_sin_proyecto_ni_responsable()
     test_construir_reporte_html_en_ingles_y_portugues()
+    test_construir_reporte_html_con_correccion_epoca()
     print("\nTodas las pruebas pasaron correctamente.")

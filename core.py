@@ -142,9 +142,11 @@ def sugerir_ruta_con_extension(ruta_base, nueva_extension):
 
 def etiqueta_punto(id_valor, numero_fila):
     """Etiqueta de texto para un punto, usada como nombre visible y
-    como campo "Text" en la exportación a DXF (convención del driver
-    DXF de OGR/GDAL: una entidad de texto se dibuja junto al punto
-    cuando la capa tiene un campo llamado exactamente "Text").
+    como texto de la entidad TEXT/MTEXT en la exportación a DXF (el
+    driver DXF de OGR/GDAL solo dibuja una etiqueta junto al punto
+    cuando el "Feature Style String" de la entidad empieza por
+    "LABEL"; ver el campo especial "OGR_STYLE" en
+    ``_crear_capa_dxf``).
 
     Usa el valor de la columna ID si se proporcionó y no está vacío;
     si no, arma un identificador secuencial "P<numero_fila>".
@@ -154,6 +156,23 @@ def etiqueta_punto(id_valor, numero_fila):
         if texto:
             return texto
     return "P{}".format(numero_fila)
+
+
+def estilo_etiqueta_dxf(texto):
+    """Arma un "Feature Style String" de OGR del tipo ``LABEL(t:"...")``
+    para ``texto``, escapando barras invertidas y comillas dobles
+    (delimitador del parámetro ``t:``) para no corromper la sintaxis
+    del estilo.
+
+    OGR/GDAL exponen esta minisintaxis para describir la simbología de
+    una entidad punto/línea/polígono. El driver DXF solo emite una
+    entidad de texto (TEXT/MTEXT) junto al punto cuando el estilo de
+    la entidad empieza por "LABEL"; por eso este string se guarda en
+    el campo especial "OGR_STYLE" (no en un campo de atributo normal)
+    al crear la capa temporal para exportar a DXF.
+    """
+    escapado = str(texto).replace("\\", "\\\\").replace('"', '\\"')
+    return 'LABEL(t:"{}")'.format(escapado)
 
 
 def recalcular_filas(header, rows, idx_x, idx_y, idx_z, dx, dy, dz):
@@ -213,6 +232,30 @@ def recalcular_filas(header, rows, idx_x, idx_y, idx_z, dx, dy, dz):
             "z_adj": z_adj,
         })
     return resultados, errores
+
+
+def coords_finales_resultado_epoca(resultado_epoca, hay_altura):
+    """lat/lon/h finales a partir de un resultado de cambio de época
+    (``vemos.ResultadoEpoca`` o ``velar_ar.ResultadoVelAr`` — este módulo no
+    importa ninguno de los dos para no acoplar ``core.py`` a un modelo
+    concreto; usa duck typing sobre los atributos del objeto recibido).
+
+    Si el resultado trae una coordenada POSGAR07 oficial
+    (``resultado_epoca.lat_p07``, que solo existe cuando el modelo es VEL-Ar
+    y la época destino es la oficial de Argentina, 2006.632 —
+    ``velar_ar.EPOCA_POSGAR07``), se usa esa coordenada final; en cualquier
+    otro caso (VEMOS, o VEL-Ar con otra época destino) se usa la propia
+    ``lat``/``lon``/``h`` del resultado, que ya está en el marco que
+    corresponda (el del modelo VEMOS elegido, o POSGAR07b para VEL-Ar).
+
+    ``hay_altura`` debe ser ``False`` cuando el punto no tenía una altura de
+    entrada (``z_adj`` es ``None``), para que la altura final quede en
+    ``None`` también en ese caso, igual que el resto del CSV de salida.
+    """
+    lat_p07 = getattr(resultado_epoca, "lat_p07", None)
+    if lat_p07 is not None:
+        return lat_p07, resultado_epoca.lon_p07, (resultado_epoca.h_p07 if hay_altura else None)
+    return resultado_epoca.lat, resultado_epoca.lon, (resultado_epoca.h if hay_altura else None)
 
 
 def _fmt_num(valor, decimales=4):
@@ -406,6 +449,37 @@ def _tarjeta_crs_html(titulo, detalle, idioma=i18n.IDIOMA_DEFECTO):
     return '<div class="tarjeta-crs"><h3>{}</h3>{}</div>'.format(_esc(titulo), cuerpo)
 
 
+def _tabla_epoca_html(epoca_info, idioma=i18n.IDIOMA_DEFECTO):
+    """Tabla <table> con el resumen de la corrección opcional de época
+    (VEMOS) aplicada al recálculo, a partir del dict que arma
+    recalculo_dialog.py en info['epoca_info'] (llaves: 'modelo',
+    'marco', 'epoca_destino', 'epoca_obs', 'cobertura', 'corregidos',
+    'fuera_cobertura'). Retorna "" si ``epoca_info`` es None/vacío."""
+    if not epoca_info:
+        return ""
+
+    def _t(clave, **kwargs):
+        return i18n.tr(idioma, clave, **kwargs)
+
+    filas = [
+        (_t("rpt_epoca_modelo"), _esc(epoca_info.get("modelo"))),
+        (_t("rpt_epoca_marco"), _esc(epoca_info.get("marco"))),
+        (_t("rpt_epoca_destino"), _fmt_num(epoca_info.get("epoca_destino"), 3)),
+        (_t("rpt_epoca_obs"), _fmt_num(epoca_info.get("epoca_obs"), 3)),
+        (_t("rpt_epoca_cobertura"), _esc(epoca_info.get("cobertura"))),
+        (_t("rpt_epoca_corregidos"), epoca_info.get("corregidos", 0)),
+        (_t("rpt_epoca_fuera"), epoca_info.get("fuera_cobertura", 0)),
+    ]
+    filas_html = "".join(
+        '<tr><td class="etq">{}</td><td>{}</td></tr>'.format(k, v) for k, v in filas
+    )
+    return (
+        '<h2>{titulo}</h2>'
+        '<table class="resumen">{filas}</table>'
+        '<p class="nota">{nota}</p>'
+    ).format(titulo=_t("rpt_epoca_h2"), filas=filas_html, nota=_t("rpt_epoca_nota"))
+
+
 def construir_reporte_html(info):
     """Arma el contenido HTML del reporte técnico de recálculo RTK — una
     página HTML autocontenida (sin dependencias externas: todo el CSS va
@@ -432,10 +506,22 @@ def construir_reporte_html(info):
         'errores_transform'  -> número de puntos que no pudieron reproyectarse
         'puntos'             -> lista de dicts, cada uno con:
                                  'etiqueta', 'x', 'y', 'z', 'x_adj', 'y_adj', 'z_adj',
-                                 'lon' (o None), 'lat' (o None)
+                                 'lon' (o None), 'lat' (o None); si se usó la corrección
+                                 de época (ver 'epoca_info' abajo), además:
+                                 'x_epoca', 'y_epoca', 'z_epoca', 'lon_epoca',
+                                 'lat_epoca', 'desplazamiento_epoca_m' (cualquiera de
+                                 estas puede ser None si el punto quedó fuera de la
+                                 cobertura real del modelo o no se pudo reproyectar) —
+                                 agregan 6 columnas a la tabla de puntos del reporte
         'idioma'             -> código de idioma opcional del reporte ('es', 'en',
                                  'pt_BR'; ver i18n.py); si se omite, se usa
                                  i18n.IDIOMA_DEFECTO ('es')
+        'epoca_info'         -> dict opcional con el resumen de la corrección de
+                                 época (VEMOS) aplicada, si el usuario la activó:
+                                 llaves 'modelo', 'marco', 'epoca_destino',
+                                 'epoca_obs', 'cobertura', 'corregidos',
+                                 'fuera_cobertura'; si se omite o es None/{} no
+                                 se agrega esa sección al reporte
 
     Devuelve un string HTML autocontenido y completo (con su propio
     ``<!DOCTYPE html>``), listo para escribirse directamente a un
@@ -496,20 +582,52 @@ def construir_reporte_html(info):
         + _tarjeta_crs_html(_t("rpt_crs_geo_titulo"), info.get("crs_geo"), idioma)
     )
 
+    # Las columnas de coordenadas corregidas por época (VEMOS) solo se
+    # agregan a la tabla de puntos si el usuario activó esa corrección
+    # (misma condición que la sección de resumen "_tabla_epoca_html").
+    # Se muestran siempre las geográficas (Lon/Lat época, el resultado
+    # directo del modelo) y el desplazamiento en metros; las planas
+    # (X/Y época) solo si pudieron reproyectarse. Un punto fuera de la
+    # cobertura real del modelo elegido queda con "N/A" en estas
+    # columnas (igual que en el CSV de salida, donde quedan vacías).
+    con_epoca = bool(info.get("epoca_info"))
+    encabezados_epoca_html = ""
+    if con_epoca:
+        encabezados_epoca_html = (
+            "<th>{}</th><th>{}</th><th>{}</th><th>{}</th><th>{}</th><th>{}</th>".format(
+                _t("rpt_col_x_epoca"), _t("rpt_col_y_epoca"), _t("rpt_col_z_epoca"),
+                _t("rpt_col_lon_epoca"), _t("rpt_col_lat_epoca"), _t("rpt_col_desplazamiento_epoca"),
+            )
+        )
+
     filas_puntos_html = []
     for i, p in enumerate(info.get("puntos") or []):
         clase_fila = ' class="par"' if i % 2 == 1 else ""
+        celdas_epoca_html = ""
+        if con_epoca:
+            celdas_epoca_html = (
+                "<td>{xe}</td><td>{ye}</td><td>{ze}</td><td>{lone}</td><td>{late}</td><td>{de}</td>".format(
+                    xe=_fmt_num(p.get("x_epoca"), 3), ye=_fmt_num(p.get("y_epoca"), 3),
+                    ze=_fmt_num(p.get("z_epoca"), 3),
+                    lone=_dms(p.get("lon_epoca"), es_longitud=True, idioma=idioma),
+                    late=_dms(p.get("lat_epoca"), es_longitud=False, idioma=idioma),
+                    de=_fmt_num(p.get("desplazamiento_epoca_m"), 3),
+                )
+            )
         filas_puntos_html.append(
             "<tr{clase}><td>{etq}</td><td>{x}</td><td>{y}</td><td>{z}</td>"
-            "<td>{xa}</td><td>{ya}</td><td>{za}</td><td>{lon}</td><td>{lat}</td></tr>".format(
+            "<td>{xa}</td><td>{ya}</td><td>{za}</td><td>{lon}</td><td>{lat}</td>{epoca}</tr>".format(
                 clase=clase_fila,
                 etq=_esc(p.get("etiqueta", "")),
                 x=_fmt_num(p.get("x"), 3), y=_fmt_num(p.get("y"), 3), z=_fmt_num(p.get("z"), 3),
                 xa=_fmt_num(p.get("x_adj"), 3), ya=_fmt_num(p.get("y_adj"), 3), za=_fmt_num(p.get("z_adj"), 3),
                 lon=_dms(p.get("lon"), es_longitud=True, idioma=idioma),
                 lat=_dms(p.get("lat"), es_longitud=False, idioma=idioma),
+                epoca=celdas_epoca_html,
             )
         )
+
+    epoca_html = _tabla_epoca_html(info.get("epoca_info"), idioma)
 
     errores_html = ""
     errores = info.get("errores") or []
@@ -642,6 +760,7 @@ def construir_reporte_html(info):
         <tr><td class="etq">{resumen_errores_transform}</td><td>{errores_transform}</td></tr>
     </table>
     {errores_html}
+    {epoca_html}
 
     <div class="pagebreak"></div>
     <h2>{h2_4}</h2>
@@ -651,7 +770,7 @@ def construir_reporte_html(info):
         <tr>
             <th>{col_punto}</th><th>{col_x}</th><th>{col_y}</th><th>{col_z}</th>
             <th>{col_x_adj}</th><th>{col_y_adj}</th><th>{col_z_adj}</th>
-            <th>{col_lon}</th><th>{col_lat}</th>
+            <th>{col_lon}</th><th>{col_lat}</th>{encabezados_epoca_html}
         </tr>
         {filas_puntos_html}
     </table>
@@ -679,10 +798,12 @@ def construir_reporte_html(info):
         omitidos=omitidos,
         errores_transform=info.get("errores_transform", 0),
         errores_html=errores_html,
+        epoca_html=epoca_html,
         nota_puntos=_t("rpt_nota_puntos"),
         col_punto=_t("rpt_col_punto"), col_x=_t("rpt_col_x"), col_y=_t("rpt_col_y"), col_z=_t("rpt_col_z"),
         col_x_adj=_t("rpt_col_x_adj"), col_y_adj=_t("rpt_col_y_adj"), col_z_adj=_t("rpt_col_z_adj"),
         col_lon=_t("rpt_col_lon"), col_lat=_t("rpt_col_lat"),
+        encabezados_epoca_html=encabezados_epoca_html,
         filas_puntos_html="".join(filas_puntos_html),
         cierre=_t("rpt_cierre", nombre_plugin=_t("rpt_nombre_plugin"), version=_esc(info.get("version_plugin", ""))),
         version_plugin=_esc(info.get("version_plugin", "")),
